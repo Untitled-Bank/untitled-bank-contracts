@@ -1,6 +1,9 @@
 [profile.default]
 src = "src"
 out = "out"
+via-ir = true
+optimizer_runs = 9999
 libs = ["lib"]
+compiler = "0.8.26"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
