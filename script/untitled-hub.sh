@@ -11,7 +11,7 @@ forge create \
   --optimize \
   --optimizer-runs 9999 \
   --verify \
-  --verifier blockscout --verifier-url 'https://explorer-testnet.soneium.org/api/' src/core/Bank.sol:Bank \
-  --constructor-args _owner
+  --verifier blockscout --verifier-url 'https://explorer-testnet.soneium.org/api/' src/core/UntitledHub.sol:UntitledHub \
+  --constructor-args $OWNER_ADDRESS
 
   # forge verify-contract _address Bank --optimizer-runs=200 --constructor-args $(cast abi-encode "constructor(address)" "<_owner>") --show-standard-json-input > etherscan.json

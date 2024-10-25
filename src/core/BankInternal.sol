@@ -3,11 +3,11 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "./VaultStorage.sol";
+import "./BankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
 
-abstract contract VaultInternal is ERC4626, VaultStorage {
+abstract contract BankInternal is ERC4626, BankStorage {
     using Math for uint256;
     using WadMath for uint256;
     using SharesMath for uint256;
@@ -21,21 +21,21 @@ abstract contract VaultInternal is ERC4626, VaultStorage {
         uint256 assets,
         uint256 shares
     ) internal virtual override {
-        if (vaultType == IVault.VaultType.Private) {
+        if (bankType == IBank.BankType.Private) {
             require(whitelist[caller], "Not whitelisted");
         }
         _accrueFee();
         super._deposit(caller, receiver, assets, shares);
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
-            IVault.BankAllocation memory allocation = bankAllocations[i];
+        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
             uint256 toDeposit = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
             toDeposit = Math.min(toDeposit, remaining);
 
             if (toDeposit > 0) {
-                IERC20(asset()).approve(address(bank), toDeposit);
-                bank.supply(allocation.id, toDeposit, "");
+                IERC20(asset()).approve(address(untitledHub), toDeposit);
+                untitledHub.supply(allocation.id, toDeposit, "");
                 remaining -= toDeposit;
             }
         }
@@ -51,14 +51,14 @@ abstract contract VaultInternal is ERC4626, VaultStorage {
         uint256 assets,
         uint256 shares
     ) internal virtual override {
-        if (vaultType == IVault.VaultType.Private) {
+        if (bankType == IBank.BankType.Private) {
             require(whitelist[owner], "Not whitelisted");
         }
          _accrueFee();
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
-            IVault.BankAllocation memory allocation = bankAllocations[i];
+        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
 
             (
                 uint128 totalSupplyAssets,
@@ -67,9 +67,9 @@ abstract contract VaultInternal is ERC4626, VaultStorage {
                 ,
                 ,
 
-            ) = bank.market(allocation.id);
+            ) = untitledHub.market(allocation.id);
 
-            (uint256 supplyShares, , ) = bank.position(
+            (uint256 supplyShares, , ) = untitledHub.position(
                 allocation.id,
                 address(this)
             );
@@ -83,7 +83,7 @@ abstract contract VaultInternal is ERC4626, VaultStorage {
             toWithdraw = Math.min(toWithdraw, remaining);
 
             if (toWithdraw > 0) {
-                bank.withdraw(allocation.id, toWithdraw, address(this));
+                untitledHub.withdraw(allocation.id, toWithdraw, address(this));
                 remaining -= toWithdraw;
             }
         }
@@ -96,10 +96,10 @@ abstract contract VaultInternal is ERC4626, VaultStorage {
 
     function totalAssets() public view virtual override returns (uint256) {
         uint256 total = 0;
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            IVault.BankAllocation memory allocation = bankAllocations[i];
-            (uint256 supplyShares, , ) = bank.position(allocation.id, address(this));
-            (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = bank.market(allocation.id);
+        for (uint256 i = 0; i < marketAllocations.length; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
+            (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
+            (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
             total += supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
         }
         return total;

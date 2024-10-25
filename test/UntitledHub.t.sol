@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../src/core/Bank.sol";
+import "../src/core/UntitledHub.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockERC20 is ERC20 {
@@ -42,8 +42,8 @@ contract MockInterestRateModel {
     }
 }
 
-contract BankTest is Test {
-    Bank public bank;
+contract UntitledHubTest is Test {
+    UntitledHub public untitledHub;
     MockERC20 public loanToken;
     MockERC20 public collateralToken;
     MockPriceProvider public priceProvider;
@@ -65,8 +65,8 @@ contract BankTest is Test {
         priceProvider = new MockPriceProvider();
         interestRateModel = new MockInterestRateModel();
 
-        bank = new Bank(owner);
-        bank.registerIrm(address(interestRateModel), true);
+        untitledHub = new UntitledHub(owner);
+        untitledHub.registerIrm(address(interestRateModel), true);
 
         // Mint tokens to users
         loanToken.mint(user1, INITIAL_BALANCE);
@@ -74,15 +74,15 @@ contract BankTest is Test {
         collateralToken.mint(user1, INITIAL_BALANCE);
         collateralToken.mint(user2, INITIAL_BALANCE);
 
-        // Approve bank to spend tokens
+        // Approve untitledHub to spend tokens
         vm.prank(user1);
-        loanToken.approve(address(bank), type(uint256).max);
+        loanToken.approve(address(untitledHub), type(uint256).max);
         vm.prank(user1);
-        collateralToken.approve(address(bank), type(uint256).max);
+        collateralToken.approve(address(untitledHub), type(uint256).max);
         vm.prank(user2);
-        loanToken.approve(address(bank), type(uint256).max);
+        loanToken.approve(address(untitledHub), type(uint256).max);
         vm.prank(user2);
-        collateralToken.approve(address(bank), type(uint256).max);
+        collateralToken.approve(address(untitledHub), type(uint256).max);
     }
 
     function testCreateMarket() public {
@@ -94,7 +94,7 @@ contract BankTest is Test {
             lltv: 0.8e18 // 80% LLTV
         });
 
-        uint256 marketId = bank.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         assertEq(marketId, 1, "Market ID should be 1");
     }
 
@@ -107,11 +107,11 @@ contract BankTest is Test {
             irm: address(interestRateModel),
             lltv: 0.8e18 // 80% LLTV
         });
-        uint256 marketId = bank.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
         // User1 supplies 100 tokens
         vm.prank(user1);
-        (uint256 suppliedAssets, uint256 suppliedShares) = bank.supply(
+        (uint256 suppliedAssets, uint256 suppliedShares) = untitledHub.supply(
             marketId,
             100e18,
             ""
@@ -121,11 +121,11 @@ contract BankTest is Test {
 
         // User2 supplies 50 collateral tokens
         vm.prank(user2);
-        bank.supplyCollateral(marketId, 50e18, "");
+        untitledHub.supplyCollateral(marketId, 50e18, "");
 
         // User2 borrows 30 tokens
         vm.prank(user2);
-        (uint256 borrowedAssets, uint256 borrowedShares) = bank.borrow(
+        (uint256 borrowedAssets, uint256 borrowedShares) = untitledHub.borrow(
             marketId,
             30e18,
             user2
@@ -143,20 +143,20 @@ contract BankTest is Test {
             irm: address(interestRateModel),
             lltv: 0.8e18 // 80% LLTV
         });
-        uint256 marketId = bank.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
         vm.prank(user1);
-        bank.supply(marketId, 100e18, "");
+        untitledHub.supply(marketId, 100e18, "");
 
         vm.prank(user2);
-        bank.supplyCollateral(marketId, 50e18, "");
+        untitledHub.supplyCollateral(marketId, 50e18, "");
 
         vm.prank(user2);
-        bank.borrow(marketId, 30e18, user2);
+        untitledHub.borrow(marketId, 30e18, user2);
 
         // User2 repays 20 tokens
         vm.prank(user2);
-        (uint256 repaidAssets, uint256 repaidShares) = bank.repay(
+        (uint256 repaidAssets, uint256 repaidShares) = untitledHub.repay(
             marketId,
             20e18,
             ""
@@ -166,7 +166,7 @@ contract BankTest is Test {
 
         // User1 withdraws 50 tokens
         vm.prank(user1);
-        (uint256 withdrawnAssets, uint256 withdrawnShares) = bank.withdraw(
+        (uint256 withdrawnAssets, uint256 withdrawnShares) = untitledHub.withdraw(
             marketId,
             50e18,
             user1
@@ -188,17 +188,17 @@ contract BankTest is Test {
             irm: address(interestRateModel),
             lltv: 0.8e18 // 80% LLTV
         });
-        uint256 marketId = bank.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
         vm.startPrank(user1);
-        loanToken.approve(address(bank), type(uint256).max);
-        bank.supply(marketId, 100e18, "");
+        loanToken.approve(address(untitledHub), type(uint256).max);
+        untitledHub.supply(marketId, 100e18, "");
         vm.stopPrank();
 
         vm.startPrank(user2);
-        collateralToken.approve(address(bank), type(uint256).max);
-        bank.supplyCollateral(marketId, 50e18, "");
-        bank.borrow(marketId, 39e18, user2); // Borrow close to the limit
+        collateralToken.approve(address(untitledHub), type(uint256).max);
+        untitledHub.supplyCollateral(marketId, 50e18, "");
+        untitledHub.borrow(marketId, 39e18, user2); // Borrow close to the limit
         vm.stopPrank();
 
         // Simulate price drop to make the position liquidatable
@@ -209,8 +209,8 @@ contract BankTest is Test {
 
         // User1 liquidates User2's position
         vm.startPrank(user1);
-        loanToken.approve(address(bank), type(uint256).max);
-        (uint256 seizedAssets, uint256 repaidShares) = bank
+        loanToken.approve(address(untitledHub), type(uint256).max);
+        (uint256 seizedAssets, uint256 repaidShares) = untitledHub
             .liquidateBySeizedAssets(marketId, user2, 20e18, "");
         vm.stopPrank();
 

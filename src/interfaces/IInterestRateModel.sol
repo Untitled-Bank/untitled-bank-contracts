@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import {MarketConfigs, Market} from "./IBank.sol";
+import {MarketConfigs, Market} from "./IUntitledHub.sol";
 
 /// @title IInterestRateModel - Interest Rate Model Interface
 /// @notice This interface defines the structure for interest rate calculation in DeFi lending protocols

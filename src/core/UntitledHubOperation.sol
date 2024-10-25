@@ -4,15 +4,15 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./Bank.sol";
+import "./UntitledHub.sol";
 
-contract BankOperation is ReentrancyGuard {
+contract UntitledHubOperation is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    Bank public immutable bank;
+    UntitledHub public immutable untitledHub;
 
-    constructor(address _bank) {
-        bank = Bank(_bank);
+    constructor(address _untitledHub) {
+        untitledHub = UntitledHub(_untitledHub);
     }
 
     function supplyCollateralAndBorrow(
@@ -25,7 +25,7 @@ contract BankOperation is ReentrancyGuard {
         require(collateralAmount > 0 || borrowAmount > 0, "Invalid amounts");
         require(receiver != address(0), "Invalid receiver");
         require(
-            bank.isGranted(msg.sender, address(this)),
+            untitledHub.isGranted(msg.sender, address(this)),
             "Permission not granted"
         );
 
@@ -35,12 +35,12 @@ contract BankOperation is ReentrancyGuard {
                 address(this),
                 collateralAmount
             );
-            IERC20(collateralToken).approve(address(bank), collateralAmount);
-            bank.supplyCollateralFor(id, collateralAmount, receiver, "");
+            IERC20(collateralToken).approve(address(untitledHub), collateralAmount);
+            untitledHub.supplyCollateralFor(id, collateralAmount, receiver, "");
         }
 
         if (borrowAmount > 0) {
-            bank.borrowFor(id, borrowAmount, receiver, receiver);
+            untitledHub.borrowFor(id, borrowAmount, receiver, receiver);
         }
     }
 
@@ -54,7 +54,7 @@ contract BankOperation is ReentrancyGuard {
         require(repayAmount > 0 || withdrawAmount > 0, "Invalid amounts");
         require(receiver != address(0), "Invalid receiver");
         require(
-            bank.isGranted(msg.sender, address(this)),
+            untitledHub.isGranted(msg.sender, address(this)),
             "Permission not granted"
         );
 
@@ -64,12 +64,12 @@ contract BankOperation is ReentrancyGuard {
                 address(this),
                 repayAmount
             );
-            IERC20(loanToken).approve(address(bank), repayAmount);
-            bank.repayFor(id, repayAmount, receiver, "");
+            IERC20(loanToken).approve(address(untitledHub), repayAmount);
+            untitledHub.repayFor(id, repayAmount, receiver, "");
         }
 
         if (withdrawAmount > 0) {
-            bank.withdrawCollateralFor(id, withdrawAmount, receiver, receiver);
+            untitledHub.withdrawCollateralFor(id, withdrawAmount, receiver, receiver);
         }
     }
 }

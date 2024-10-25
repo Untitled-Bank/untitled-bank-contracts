@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {IInterestRateModel} from "../interfaces/IInterestRateModel.sol";
-import {MarketConfigs, Market} from "../interfaces/IBank.sol";
+import {MarketConfigs, Market} from "../interfaces/IUntitledHub.sol";
 
 import {WadMath} from "../libraries/math/WadMath.sol";
 

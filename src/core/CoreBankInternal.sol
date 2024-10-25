@@ -3,11 +3,11 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "./CoreVaultStorage.sol";
+import "./CoreBankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
 
-abstract contract CoreVaultInternal is ERC4626, CoreVaultStorage {
+abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
     using Math for uint256;
     using WadMath for uint256;
     using SharesMath for uint256;
@@ -21,14 +21,14 @@ abstract contract CoreVaultInternal is ERC4626, CoreVaultStorage {
         super._deposit(caller, receiver, assets, shares);
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < vaultAllocations.length && remaining > 0; i++) {
-            ICoreVault.VaultAllocation memory allocation = vaultAllocations[i];
+        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+            ICoreBank.BankAllocation memory allocation = bankAllocations[i];
             uint256 toDeposit = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
             toDeposit = Math.min(toDeposit, remaining);
 
             if (toDeposit > 0) {
-                IERC20(asset()).approve(address(allocation.vault), toDeposit);
-                allocation.vault.deposit(toDeposit, address(this));
+                IERC20(asset()).approve(address(allocation.bank), toDeposit);
+                allocation.bank.deposit(toDeposit, address(this));
                 remaining -= toDeposit;
             }
         }
@@ -44,16 +44,16 @@ abstract contract CoreVaultInternal is ERC4626, CoreVaultStorage {
         uint256 shares
     ) internal override {
         uint256 remaining = assets;
-        for (uint256 i = 0; i < vaultAllocations.length && remaining > 0; i++) {
-            ICoreVault.VaultAllocation memory allocation = vaultAllocations[i];
-            uint256 vaultShares = allocation.vault.balanceOf(address(this));
-            uint256 vaultAssets = allocation.vault.convertToAssets(vaultShares);
+        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+            ICoreBank.BankAllocation memory allocation = bankAllocations[i];
+            uint256 bankShares = allocation.bank.balanceOf(address(this));
+            uint256 bankAssets = allocation.bank.convertToAssets(bankShares);
             uint256 toWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
-            toWithdraw = Math.min(toWithdraw, vaultAssets);
+            toWithdraw = Math.min(toWithdraw, bankAssets);
             toWithdraw = Math.min(toWithdraw, remaining);
 
             if (toWithdraw > 0) {
-                allocation.vault.withdraw(
+                allocation.bank.withdraw(
                     toWithdraw,
                     address(this),
                     address(this)
@@ -69,10 +69,10 @@ abstract contract CoreVaultInternal is ERC4626, CoreVaultStorage {
 
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
-        for (uint256 i = 0; i < vaultAllocations.length; i++) {
-            IERC4626 vault = vaultAllocations[i].vault;
-            uint256 vaultShares = vault.balanceOf(address(this));
-            total += vault.convertToAssets(vaultShares);
+        for (uint256 i = 0; i < bankAllocations.length; i++) {
+            IERC4626 bank = bankAllocations[i].bank;
+            uint256 bankShares = bank.balanceOf(address(this));
+            total += bank.convertToAssets(bankShares);
         }
         return total;
     }

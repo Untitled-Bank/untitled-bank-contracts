@@ -1,6 +1,5 @@
 ## Untitled Bank Contracts
 
+- UntitledHub
 - Bank
-- CoreVault
-- VaultFactory
-- Vault
+- CoreBank
