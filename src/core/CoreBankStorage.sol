@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import "../interfaces/ICoreVault.sol";
+import "../interfaces/ICoreBank.sol";
 
-contract CoreVaultStorage {
-    ICoreVault.VaultAllocation[] public vaultAllocations;
-    mapping(address => bool) public isVaultEnabled;
+contract CoreBankStorage {
+    ICoreBank.BankAllocation[] public bankAllocations;
+    mapping(address => bool) public isBankEnabled;
 
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant BASIS_POINTS_WAD = BASIS_POINTS * 1e18;

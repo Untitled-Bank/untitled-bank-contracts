@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import {IBankBase, MarketConfigs, LiquidationParams, Position, Market} from "../interfaces/IBank.sol";
+import {IUntitledHubBase, MarketConfigs, LiquidationParams, Position, Market} from "../interfaces/IUntitledHub.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WadMath, WAD} from "../libraries/math/WadMath.sol";
 import {UtilsLib} from "../libraries/UtilsLib.sol";
 import {SharesMath} from "../libraries/math/SharesMath.sol";
 import "../libraries/ConstantsLib.sol";
-import "./BankStorage.sol";
+import "./UntitledHubStorage.sol";
 
 import {IPriceProvider} from "../interfaces/IPriceProvider.sol";
 import {IInterestRateModel} from "../interfaces/IInterestRateModel.sol";
-import {IBankLiquidateCallback, IBankRepayCallback, IBankSupplyCallback, IBankSupplyCollateralCallback, IBankFlashLoanCallback} from "../interfaces/IBankCallbacks.sol";
+import {IUntitledHubLiquidateCallback, IUntitledHubRepayCallback, IUntitledHubSupplyCallback, IUntitledHubSupplyCollateralCallback, IUntitledHubFlashLoanCallback} from "../interfaces/IUntitledHubCallbacks.sol";
 
-abstract contract BankBase is BankStorage {
+abstract contract UntitledHubBase is UntitledHubStorage {
     using WadMath for uint128;
     using WadMath for uint256;
     using UtilsLib for uint256;
@@ -24,12 +24,12 @@ abstract contract BankBase is BankStorage {
     /* MODIFIERS */
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Bank: not owner");
+        require(msg.sender == owner, "UntitledHub: not owner");
         _;
     }
 
     modifier nonZeroAddress(address addr) {
-        require(addr != address(0), "Bank: zero address");
+        require(addr != address(0), "UntitledHub: zero address");
         _;
     }
 
@@ -47,21 +47,21 @@ abstract contract BankBase is BankStorage {
     ) external payable returns (uint256) {
         require(
             IPriceProvider(marketConfigs.oracle).isPriceProvider(),
-            "Bank: invalid oracle"
+            "UntitledHub: invalid oracle"
         );
         require(
             IInterestRateModel(marketConfigs.irm).isIrm(),
-            "Bank: invalid IRM"
+            "UntitledHub: invalid IRM"
         );
-        require(isIrmRegistered[marketConfigs.irm], "Bank: IRM not registered");
-        require(marketConfigs.lltv < 1e18, "Bank: wrong LLTV");
+        require(isIrmRegistered[marketConfigs.irm], "UntitledHub: IRM not registered");
+        require(marketConfigs.lltv < 1e18, "UntitledHub: wrong LLTV");
         require(
             msg.value >= marketCreationFee,
-            "Bank: insufficient creation fee"
+            "UntitledHub: insufficient creation fee"
         );
 
         uint256 newId = ++lastUsedId;
-        require(market[newId].lastUpdate == 0, "Bank: market already created");
+        require(market[newId].lastUpdate == 0, "UntitledHub: market already created");
 
         // Safe "unchecked" cast.
         market[newId].lastUpdate = uint128(block.timestamp);
@@ -83,16 +83,16 @@ abstract contract BankBase is BankStorage {
     }
 
     function registerIrm(address irm, bool isIrm) external onlyOwner {
-        require(IInterestRateModel(irm).isIrm(), "Bank: invalid IRM");
+        require(IInterestRateModel(irm).isIrm(), "UntitledHub: invalid IRM");
         isIrmRegistered[irm] = isIrm;
     }
 
     /* FEE MANAGEMENT */
 
     function setFee(uint256 id, uint256 newFee) external onlyOwner {
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(newFee != market[id].fee, "Bank: already set");
-        require(newFee <= 0.3e18, "Bank: max fee exceeded");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(newFee != market[id].fee, "UntitledHub: already set");
+        require(newFee <= 0.3e18, "UntitledHub: max fee exceeded");
 
         _accrueInterest(id);
 
@@ -102,7 +102,7 @@ abstract contract BankBase is BankStorage {
     }
 
     function setFeeRecipient(address newFeeRecipient) external onlyOwner {
-        require(newFeeRecipient != feeRecipient, "Bank: already set");
+        require(newFeeRecipient != feeRecipient, "UntitledHub: already set");
 
         feeRecipient = newFeeRecipient;
 
@@ -116,7 +116,7 @@ abstract contract BankBase is BankStorage {
     }
 
     function withdrawFees(uint256 amount) external onlyOwner {
-        require(amount <= collectedFees, "Bank: insufficient collected fees");
+        require(amount <= collectedFees, "UntitledHub: insufficient collected fees");
         collectedFees -= amount;
         payable(owner).transfer(amount);
         emit FeesWithdrawn(amount);
@@ -131,9 +131,9 @@ abstract contract BankBase is BankStorage {
         bytes calldata data
     ) internal nonZeroAddress(supplier) returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(_isSenderGranted(supplier), "Bank: not granted");
-        require(assets != 0, "Bank: zero assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(_isSenderGranted(supplier), "UntitledHub: not granted");
+        require(assets != 0, "UntitledHub: zero assets");
 
         _accrueInterest(id);
 
@@ -149,7 +149,7 @@ abstract contract BankBase is BankStorage {
         emit Supply(id, msg.sender, supplier, assets, shares);
 
         if (data.length > 0) {
-            IBankSupplyCallback(msg.sender).onBankSupply(assets, data);
+            IUntitledHubSupplyCallback(msg.sender).onUntitledHubSupply(assets, data);
         }
 
         ERC20(marketConfigs.loanToken).safeTransferFrom(
@@ -168,9 +168,9 @@ abstract contract BankBase is BankStorage {
         address receiver
     ) internal nonZeroAddress(receiver) returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(_isSenderGranted(withdrawer), "Bank: not granted");
-        require(assets != 0, "Bank: zero assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(_isSenderGranted(withdrawer), "UntitledHub: not granted");
+        require(assets != 0, "UntitledHub: zero assets");
 
         _accrueInterest(id);
 
@@ -181,14 +181,14 @@ abstract contract BankBase is BankStorage {
                 market[id].totalSupplyAssets,
                 market[id].totalSupplyShares
             );
-            require(assets != 0, "Bank: zero assets");
+            require(assets != 0, "UntitledHub: zero assets");
             shares = userShares;
         } else {
             shares = assets.toSharesUp(
                 market[id].totalSupplyAssets,
                 market[id].totalSupplyShares
             );
-            require(shares <= userShares, "Bank: insufficient balance");
+            require(shares <= userShares, "UntitledHub: insufficient balance");
         }
 
         position[id][withdrawer].supplyShares -= shares;
@@ -197,7 +197,7 @@ abstract contract BankBase is BankStorage {
 
         require(
             market[id].totalBorrowAssets <= market[id].totalSupplyAssets,
-            "Bank: insufficient liquidity"
+            "UntitledHub: insufficient liquidity"
         );
 
         emit Withdraw(id, msg.sender, withdrawer, receiver, assets, shares);
@@ -214,9 +214,9 @@ abstract contract BankBase is BankStorage {
         address receiver
     ) internal nonZeroAddress(receiver) returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(_isSenderGranted(borrower), "Bank: not granted");
-        require(assets != 0, "Bank: zero assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(_isSenderGranted(borrower), "UntitledHub: not granted");
+        require(assets != 0, "UntitledHub: zero assets");
 
         _accrueInterest(id);
 
@@ -231,11 +231,11 @@ abstract contract BankBase is BankStorage {
 
         require(
             getHealthFactor(id, borrower) >= WAD,
-            "Bank: insufficient collateral"
+            "UntitledHub: insufficient collateral"
         );
         require(
             market[id].totalBorrowAssets <= market[id].totalSupplyAssets,
-            "Bank: insufficient liquidity"
+            "UntitledHub: insufficient liquidity"
         );
 
         emit Borrow(id, msg.sender, borrower, receiver, assets, shares);
@@ -252,9 +252,9 @@ abstract contract BankBase is BankStorage {
         bytes calldata data
     ) internal nonZeroAddress(repayer) returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(_isSenderGranted(repayer), "Bank: not granted");
-        require(assets != 0, "Bank: zero assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(_isSenderGranted(repayer), "UntitledHub: not granted");
+        require(assets != 0, "UntitledHub: zero assets");
 
         _accrueInterest(id);
 
@@ -286,7 +286,7 @@ abstract contract BankBase is BankStorage {
         emit Repay(id, msg.sender, repayer, actualRepayAmount, shares);
 
         if (data.length > 0)
-            IBankRepayCallback(msg.sender).onBankRepay(actualRepayAmount, data);
+            IUntitledHubRepayCallback(msg.sender).onUntitledHubRepay(actualRepayAmount, data);
 
         ERC20(marketConfigs.loanToken).safeTransferFrom(
             msg.sender,
@@ -306,16 +306,16 @@ abstract contract BankBase is BankStorage {
         bytes calldata data
     ) internal nonZeroAddress(supplier) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(_isSenderGranted(supplier), "Bank: not granted");
-        require(assets != 0, "Bank: zero assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(_isSenderGranted(supplier), "UntitledHub: not granted");
+        require(assets != 0, "UntitledHub: zero assets");
 
         position[id][supplier].collateral += assets.toUint128();
 
         emit SupplyCollateral(id, msg.sender, supplier, assets);
 
         if (data.length > 0)
-            IBankSupplyCollateralCallback(msg.sender).onBankSupplyCollateral(
+            IUntitledHubSupplyCollateralCallback(msg.sender).onUntitledHubSupplyCollateral(
                 assets,
                 data
             );
@@ -334,9 +334,9 @@ abstract contract BankBase is BankStorage {
         address receiver
     ) internal nonZeroAddress(receiver) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(assets != 0, "Bank: zero assets");
-        require(_isSenderGranted(withdrawer), "Bank: not granted");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(assets != 0, "UntitledHub: zero assets");
+        require(_isSenderGranted(withdrawer), "UntitledHub: not granted");
 
         _accrueInterest(id);
 
@@ -344,7 +344,7 @@ abstract contract BankBase is BankStorage {
 
         require(
             getHealthFactor(id, withdrawer) >= WAD,
-            "Bank: insufficient collateral"
+            "UntitledHub: insufficient collateral"
         );
 
         emit WithdrawCollateral(id, msg.sender, withdrawer, receiver, assets);
@@ -361,12 +361,12 @@ abstract contract BankBase is BankStorage {
         bytes calldata data
     ) internal returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(seizedAssets != 0, "Bank: zero seized assets");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(seizedAssets != 0, "UntitledHub: zero seized assets");
 
         _accrueInterest(id);
 
-        require(getHealthFactor(id, borrower) < WAD, "Bank: healthy position");
+        require(getHealthFactor(id, borrower) < WAD, "UntitledHub: healthy position");
 
         LiquidationParams memory params;
         params.liquidationIncentiveFactor = UtilsLib.min(
@@ -407,12 +407,12 @@ abstract contract BankBase is BankStorage {
         bytes calldata data
     ) internal returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
-        require(market[id].lastUpdate != 0, "Bank: market not created");
-        require(repaidShares != 0, "Bank: zero repaid shares");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
+        require(repaidShares != 0, "UntitledHub: zero repaid shares");
 
         _accrueInterest(id);
 
-        require(getHealthFactor(id, borrower) < WAD, "Bank: healthy position");
+        require(getHealthFactor(id, borrower) < WAD, "UntitledHub: healthy position");
 
         LiquidationParams memory params;
         params.liquidationIncentiveFactor = UtilsLib.min(
@@ -464,7 +464,7 @@ abstract contract BankBase is BankStorage {
         );
 
         if (data.length > 0) {
-            IBankLiquidateCallback(msg.sender).onBankLiquidate(
+            IUntitledHubLiquidateCallback(msg.sender).onUntitledHubLiquidate(
                 params.repaidAssets,
                 data
             );
@@ -486,13 +486,13 @@ abstract contract BankBase is BankStorage {
         uint256 assets,
         bytes calldata data
     ) internal {
-        require(assets != 0, "Bank: zero assets");
+        require(assets != 0, "UntitledHub: zero assets");
 
         emit FlashLoan(msg.sender, token, assets);
 
         ERC20(token).safeTransfer(msg.sender, assets);
 
-        IBankFlashLoanCallback(msg.sender).onBankFlashLoan(assets, data);
+        IUntitledHubFlashLoanCallback(msg.sender).onUntitledHubFlashLoan(assets, data);
 
         ERC20(token).safeTransferFrom(msg.sender, address(this), assets);
     }
@@ -500,7 +500,7 @@ abstract contract BankBase is BankStorage {
     function setGrantPermission(address grantee, bool newIsGranted) external {
         require(
             newIsGranted != isGranted[msg.sender][grantee],
-            "Bank: already set"
+            "UntitledHub: already set"
         );
 
         isGranted[msg.sender][grantee] = newIsGranted;
@@ -515,7 +515,7 @@ abstract contract BankBase is BankStorage {
     /* INTEREST MANAGEMENT */
 
     function accrueInterest(uint256 id) external {
-        require(market[id].lastUpdate != 0, "Bank: market not created");
+        require(market[id].lastUpdate != 0, "UntitledHub: market not created");
 
         _accrueInterest(id);
     }

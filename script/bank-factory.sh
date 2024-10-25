@@ -11,4 +11,5 @@ forge create \
   --optimize \
   --optimizer-runs 200 \
   --verify \
-  --verifier blockscout --verifier-url 'https://explorer-testnet.soneium.org/api/' src/core/CoreVaultFactory.sol:CoreVaultFactory
+  --verifier blockscout --verifier-url 'https://explorer-testnet.soneium.org/api/' src/core/BankFactory.sol:BankFactory \
+  --constructor-args $UNTITLED_HUB_ADDRESS

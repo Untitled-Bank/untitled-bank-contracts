@@ -1,35 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import {IBank, MarketConfigs, Position, Market} from "../interfaces/IBank.sol";
+import "../interfaces/IBank.sol";
+import "./UntitledHub.sol";
 
-abstract contract BankStorage is IBank {
-    bytes32 public immutable DOMAIN_SEPARATOR;
+contract BankStorage {
+    UntitledHub public immutable untitledHub;
+    IBank.MarketAllocation[] public marketAllocations;
+    mapping(uint256 => bool) public isMarketEnabled;
 
-    address public owner;
+    uint256 public constant MAX_MARKETS = 10;
+    uint256 public constant BASIS_POINTS = 10000;
+    uint256 public constant BASIS_POINTS_WAD = BASIS_POINTS * 1e18;
+    uint256 public fee;
     address public feeRecipient;
-    mapping(uint256 => mapping(address => Position)) public position;
-    mapping(uint256 => Market) public market;
-    mapping(address => bool) public isIrmRegistered;
-    mapping(address => mapping(address => bool)) public isGranted;
-    mapping(uint256 => MarketConfigs) public idToMarketConfigs;
 
-    uint256 public lastUsedId;
-    uint256 public marketCreationFee;
-    uint256 public collectedFees;
+    IBank.BankType public bankType;
+    mapping(address => bool) public whitelist;
 
-    constructor() {
-        bytes32 DOMAIN_TYPEHASH = keccak256(
-            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-        );
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                keccak256(bytes("Bank")),
-                keccak256(bytes("1")),
-                block.chainid,
-                address(this)
-            )
-        );
+    constructor(UntitledHub _untitledHub, IBank.BankType _bankType) {
+        untitledHub = _untitledHub;
+        bankType = _bankType;
     }
 }
