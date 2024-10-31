@@ -54,42 +54,52 @@ abstract contract BankInternal is ERC4626, BankStorage {
         if (bankType == IBank.BankType.Private) {
             require(whitelist[owner], "Not whitelisted");
         }
-         _accrueFee();
+        _accrueFee();
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+        uint256[] memory marketWithdrawals = new uint256[](marketAllocations.length);
+        
+        // First pass: Try to withdraw according to allocations
+        for (uint256 i = 0; i < marketAllocations.length; i++) {
             IBank.MarketAllocation memory allocation = marketAllocations[i];
-
-            (
-                uint128 totalSupplyAssets,
-                uint128 totalSupplyShares,
-                ,
-                ,
-                ,
-
-            ) = untitledHub.market(allocation.id);
-
-            (uint256 supplyShares, , ) = untitledHub.position(
-                allocation.id,
-                address(this)
-            );
-            uint256 currentAssets = supplyShares.toAssetsDown(
-                totalSupplyAssets,
-                totalSupplyShares
-            );
-
-            uint256 toWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
-            toWithdraw = Math.min(toWithdraw, currentAssets);
-            toWithdraw = Math.min(toWithdraw, remaining);
-
-            if (toWithdraw > 0) {
-                untitledHub.withdraw(allocation.id, toWithdraw, address(this));
-                remaining -= toWithdraw;
+            uint256 targetWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
+            
+            // Check how much we can actually withdraw from this market
+            (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
+            (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
+            uint256 availableAssets = supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
+            
+            uint256 actualWithdraw = Math.min(targetWithdraw, availableAssets);
+            if (actualWithdraw > 0) {
+                untitledHub.withdraw(allocation.id, actualWithdraw, address(this));
+                marketWithdrawals[i] = actualWithdraw;
+                remaining -= actualWithdraw;
+            }
+        }
+        
+        // Second pass: Try to withdraw remaining assets from markets with available liquidity
+        if (remaining > 0) {
+            for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+                IBank.MarketAllocation memory allocation = marketAllocations[i];
+                
+                // Check remaining available assets in this market
+                (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
+                (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
+                uint256 availableAssets = supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
+                
+                // Subtract what we've already withdrawn
+                availableAssets = availableAssets > marketWithdrawals[i] ? availableAssets - marketWithdrawals[i] : 0;
+                
+                if (availableAssets > 0) {
+                    uint256 additionalWithdraw = Math.min(remaining, availableAssets);
+                    untitledHub.withdraw(allocation.id, additionalWithdraw, address(this));
+                    remaining -= additionalWithdraw;
+                }
             }
         }
 
-        require(remaining == 0, "Not enough liquidity");
-
+        require(remaining == 0, "Insufficient liquidity across all markets");
+        
         super._withdraw(caller, receiver, owner, assets, shares);
         lastTotalAssets = totalAssets();
     }
@@ -138,5 +148,4 @@ abstract contract BankInternal is ERC4626, BankStorage {
     function maxRedeem(address owner) public view override returns (uint256) {
         return balanceOf(owner);
     }
-
 }
