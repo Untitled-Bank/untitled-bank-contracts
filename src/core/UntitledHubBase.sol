@@ -83,8 +83,12 @@ abstract contract UntitledHubBase is UntitledHubStorage {
     }
 
     function registerIrm(address irm, bool isIrm) external onlyOwner {
-        require(IInterestRateModel(irm).isIrm(), "UntitledHub: invalid IRM");
-        isIrmRegistered[irm] = isIrm;
+        try IInterestRateModel(irm).isIrm() returns (bool result) {
+            require(result, "UntitledHub: invalid IRM");
+            isIrmRegistered[irm] = isIrm;
+        } catch {
+            revert("UntitledHub: invalid IRM interface");
+        }     
     }
 
     /* FEE MANAGEMENT */
