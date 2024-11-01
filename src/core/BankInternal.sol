@@ -43,7 +43,7 @@ abstract contract BankInternal is ERC4626, BankStorage {
             }
         }
 
-        require(remaining == 0, "Not all assets deposited");
+        require(remaining == 0, "Bank: Not all assets deposited");
         lastTotalAssets = totalAssets();
     }
 
@@ -61,7 +61,8 @@ abstract contract BankInternal is ERC4626, BankStorage {
 
         uint256 remaining = assets;
         uint256[] memory marketWithdrawals = new uint256[](marketAllocations.length);
-        
+        uint256[] memory marketLiquidities = new uint256[](marketAllocations.length);
+
         // First pass: Try to withdraw according to allocations
         for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
             IBank.MarketAllocation memory allocation = marketAllocations[i];
@@ -70,6 +71,7 @@ abstract contract BankInternal is ERC4626, BankStorage {
             }
             uint256 targetWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);            
             uint256 availableLiquidity = _marketLiquidityAfterAccruedInterest(allocation.id);
+            marketLiquidities[i] = availableLiquidity;
 
             // Check how much we can actually withdraw from this market
             (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
@@ -98,8 +100,8 @@ abstract contract BankInternal is ERC4626, BankStorage {
                 // Check remaining available assets in this market
                 (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
                 (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
-                uint256 availableAssets = supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
-                
+                uint256 availableAssets = Math.min(marketLiquidities[i], supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares));                
+
                 // Subtract what we've already withdrawn
                 availableAssets = availableAssets > marketWithdrawals[i] ? availableAssets - marketWithdrawals[i] : 0;
                 
@@ -155,20 +157,7 @@ abstract contract BankInternal is ERC4626, BankStorage {
         return totalSupplyAssets - totalBorrowAssets;
     }
 
-    // Override these functions to account for fee accrual
-    function maxDeposit(address) public pure override returns (uint256) {
-        return type(uint256).max;
-    }
-
-    function maxMint(address) public pure override returns (uint256) {
-        return type(uint256).max;
-    }
-
     function maxWithdraw(address owner) public view override returns (uint256) {
         return convertToAssets(balanceOf(owner));
-    }
-
-    function maxRedeem(address owner) public view override returns (uint256) {
-        return balanceOf(owner);
     }
 }

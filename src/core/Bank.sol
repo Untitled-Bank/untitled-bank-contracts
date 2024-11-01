@@ -320,21 +320,15 @@ contract Bank is IBank, BankInternal, Timelock {
         require(withdrawIds.length == withdrawAmounts.length, "Bank: Mismatched withdraw arrays");
         require(depositIds.length == depositAmounts.length, "Bank: Mismatched deposit arrays");
 
-        // Check if all markets are enabled
-        for (uint256 i = 0; i < withdrawIds.length; i++) {
-            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
-        }
-        for (uint256 i = 0; i < depositIds.length; i++) {
-            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
-        }
-
         // Check total amounts match
         uint256 totalWithdraw = 0;
         uint256 totalDeposit = 0;
         for (uint256 i = 0; i < withdrawAmounts.length; i++) {
+            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
             totalWithdraw += withdrawAmounts[i];
         }
         for (uint256 i = 0; i < depositAmounts.length; i++) {
+            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
             totalDeposit += depositAmounts[i];
         }
         require(totalWithdraw == totalDeposit, "Bank: Mismatched total amounts");
@@ -371,21 +365,15 @@ contract Bank is IBank, BankInternal, Timelock {
         require(withdrawIds.length == withdrawAmounts.length, "Bank: Mismatched withdraw arrays");
         require(depositIds.length == depositAmounts.length, "Bank: Mismatched deposit arrays");
 
-        // Check if all markets are enabled
-        for (uint256 i = 0; i < withdrawIds.length; i++) {
-            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
-        }
-        for (uint256 i = 0; i < depositIds.length; i++) {
-            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
-        }
-
         // Check and track total amounts
         uint256 totalWithdraw = 0;
         uint256 totalDeposit = 0;
         for (uint256 i = 0; i < withdrawAmounts.length; i++) {
+            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
             totalWithdraw += withdrawAmounts[i];
         }
         for (uint256 i = 0; i < depositAmounts.length; i++) {
+            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
             totalDeposit += depositAmounts[i];
         }
         require(totalWithdraw == totalDeposit, "Bank: Mismatched total amounts");
@@ -560,6 +548,14 @@ contract Bank is IBank, BankInternal, Timelock {
         returns (MarketAllocation[] memory)
     {
         return marketAllocations;
+    }
+
+    function getIsMarketEnabled(uint256 id) external view returns (bool) {
+        return isMarketEnabled[id];
+    }
+
+    function getUntitledHub() external view returns (address) {
+        return address(untitledHub);
     }
 
     function isWhitelisted(address account) external view returns (bool) {

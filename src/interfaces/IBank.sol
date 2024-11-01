@@ -44,6 +44,8 @@ interface IBank is IERC4626 {
     function getFee() external view returns (uint256);
     function getFeeRecipient() external view returns (address);
     function getMarketAllocations() external view returns (MarketAllocation[] memory);
+    function getIsMarketEnabled(uint256 id) external view returns (bool);
+    function getUntitledHub() external view returns (address);
     function isWhitelisted(address account) external view returns (bool);
 
     event BankTypeSet(BankType bankType);
