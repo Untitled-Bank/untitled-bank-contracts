@@ -16,7 +16,7 @@ contract Bank is IBank, BankInternal, Timelock {
         UntitledHub _untitledHub,
         uint256 _fee,
         address _feeRecipient,
-        uint256 _minDelay,
+        uint32 _minDelay,
         address _initialAdmin,
         IBank.BankType _bankType
     )
@@ -41,20 +41,14 @@ contract Bank is IBank, BankInternal, Timelock {
         uint256 id,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(marketAllocations.length < MAX_MARKETS, "Bank: Max markets reached");
-        require(!isMarketEnabled[id], "Bank: Market already added");
-
-        (address loanToken, , , , ) = untitledHub.idToMarketConfigs(id);
-        require(loanToken == asset(), "Bank: Asset mismatch");
-
         bytes32 operationId = keccak256(abi.encode(
             "addMarket",
             id
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit MarketAdditionScheduled(id, delay, operationId);
+        emit MarketAdditionScheduled(id, uint32(delay), operationId);
     }
 
     function executeAddMarket(uint256 id) external onlyRole(EXECUTOR_ROLE) {
@@ -73,7 +67,9 @@ contract Bank is IBank, BankInternal, Timelock {
 
         if (marketAllocations.length == 0) {
             marketAllocations.push(MarketAllocation(id, BASIS_POINTS));
+            marketIdToIndex[id] = 0;
         } else {
+            marketIdToIndex[id] = marketAllocations.length;
             marketAllocations.push(MarketAllocation(id, 0));
         }
         isMarketEnabled[id] = true;
@@ -92,77 +88,15 @@ contract Bank is IBank, BankInternal, Timelock {
         emit MarketAdditionCancelled(id, operationId);
     }
 
-    function scheduleAddMarkets(
-        uint256[] calldata ids,
-        uint256 delay
-    ) external onlyRole(PROPOSER_ROLE) {
-        require(
-            marketAllocations.length + ids.length <= MAX_MARKETS,
-            "Bank: Max markets reached"
-        );
-        for (uint256 i = 0; i < ids.length; i++) {
-            require(!isMarketEnabled[ids[i]], "Bank: Market already added");
-            (address loanToken, , , , ) = untitledHub.idToMarketConfigs(ids[i]);
-            require(loanToken == asset(), "Bank: Asset mismatch");
-        }
-
-        bytes32 operationId = keccak256(abi.encode(
-            "addMarkets",
-            ids
-        ));
-
-        scheduleOperation(operationId, delay);
-
-        emit MarketsAdditionScheduled(ids, delay, operationId);
-    }
-
-    function executeAddMarkets(uint256[] calldata ids) external onlyRole(EXECUTOR_ROLE) {
-        require(
-            marketAllocations.length + ids.length <= MAX_MARKETS,
-            "Bank: Max markets reached"
-        );
-
-        bytes32 operationId = keccak256(abi.encode(
-            "addMarkets",
-            ids
-        ));
-
-        executeOperation(operationId);
-
-        for (uint256 i = 0; i < ids.length; i++) {
-            require(!isMarketEnabled[ids[i]], "Bank: Market already added");
-            (address loanToken, , , , ) = untitledHub.idToMarketConfigs(ids[i]);
-            require(loanToken == asset(), "Bank: Asset mismatch");
-
-            marketAllocations.push(MarketAllocation(ids[i], 0));
-            isMarketEnabled[ids[i]] = true;
-        }
-
-        emit MarketsAdded(ids);
-    }
-
-    function cancelAddMarkets(uint256[] calldata ids) external onlyRole(PROPOSER_ROLE) {
-        bytes32 operationId = keccak256(abi.encode(
-            "addMarkets",
-            ids
-        ));
-        
-        cancelOperation(operationId);
-        
-        emit MarketsAdditionCancelled(ids, operationId);
-    }
-
     function scheduleRemoveMarket(uint256 id, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(isMarketEnabled[id], "Bank: Market not enabled");
-
         bytes32 operationId = keccak256(abi.encode(
             "removeMarket",
             id
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit MarketRemovalScheduled(id, delay, operationId);
+        emit MarketRemovalScheduled(id, uint32(delay), operationId);
     }
 
     function executeRemoveMarket(uint256 id) external onlyRole(EXECUTOR_ROLE) {
@@ -175,27 +109,27 @@ contract Bank is IBank, BankInternal, Timelock {
 
         executeOperation(operationId);
         
-        // Find and withdraw assets from the market being removed
+        uint256 index = marketIdToIndex[id];
+        require(index < marketAllocations.length && marketAllocations[index].id == id, "Bank: Market index mismatch");
+        
+        uint256 removedAllocation = marketAllocations[index].allocation;
+        (uint256 supplyShares, , ) = untitledHub.position(id, address(this));                
         uint256 withdrawnAssets = 0;
-        uint256 removedAllocation;
-        for (uint256 i = 0; i < marketAllocations.length; i++) {
-            if (marketAllocations[i].id == id) {
-                removedAllocation = marketAllocations[i].allocation;
-                (uint256 supplyShares, , ) = untitledHub.position(id, address(this));                
-                if (supplyShares > 0) {
-                    (uint256 assets, ) = untitledHub.withdraw(id, type(uint256).max, address(this));
-                    withdrawnAssets += assets;
-                }
-                
-                // Remove market from allocations
-                marketAllocations[i] = marketAllocations[marketAllocations.length - 1];
-                marketAllocations.pop();
-                break;
-            }
+        if (supplyShares > 0) {
+            (uint256 assets, ) = untitledHub.withdraw(id, type(uint256).max, address(this));
+            withdrawnAssets = assets;
         }
         
+        // Remove market and update indices
+        uint256 lastIndex = marketAllocations.length - 1;
+        if (index != lastIndex) {
+            marketAllocations[index] = marketAllocations[lastIndex];
+            marketIdToIndex[marketAllocations[lastIndex].id] = index;
+        }
+        marketAllocations.pop();
+        delete marketIdToIndex[id];
         isMarketEnabled[id] = false;
-        
+
         if (withdrawnAssets > 0) {            
             uint256 totalRemainingAllocation = BASIS_POINTS - removedAllocation;
             require(marketAllocations.length > 0, "Bank: Cannot remove last market if there are still assets in the bank");
@@ -239,29 +173,14 @@ contract Bank is IBank, BankInternal, Timelock {
         MarketAllocation[] calldata newMarketAllocations,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(newMarketAllocations.length == marketAllocations.length, "Bank: Mismatched arrays");
-
-        // Check if all markets are enabled and allocations are valid
-        uint256 totalAllocation = 0;
-        for (uint256 i = 0; i < newMarketAllocations.length; i++) {
-            require(isMarketEnabled[newMarketAllocations[i].id], "Bank: Market not enabled");
-            require(
-                newMarketAllocations[i].allocation > 0 && 
-                newMarketAllocations[i].allocation <= BASIS_POINTS, 
-                "Bank: Invalid allocation"
-            );
-            totalAllocation += newMarketAllocations[i].allocation;
-        }
-        require(totalAllocation == BASIS_POINTS, "Bank: Total allocation must be 100%");
-
         bytes32 operationId = keccak256(abi.encode(
             "updateAllocations",
             newMarketAllocations
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit AllocationsUpdateScheduled(newMarketAllocations, delay, operationId);
+        emit AllocationsUpdateScheduled(newMarketAllocations, uint32(delay), operationId);
     }
 
     function executeUpdateAllocations(
@@ -317,22 +236,6 @@ contract Bank is IBank, BankInternal, Timelock {
         uint256[] calldata depositAmounts,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(withdrawIds.length == withdrawAmounts.length, "Bank: Mismatched withdraw arrays");
-        require(depositIds.length == depositAmounts.length, "Bank: Mismatched deposit arrays");
-
-        // Check total amounts match
-        uint256 totalWithdraw = 0;
-        uint256 totalDeposit = 0;
-        for (uint256 i = 0; i < withdrawAmounts.length; i++) {
-            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
-            totalWithdraw += withdrawAmounts[i];
-        }
-        for (uint256 i = 0; i < depositAmounts.length; i++) {
-            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
-            totalDeposit += depositAmounts[i];
-        }
-        require(totalWithdraw == totalDeposit, "Bank: Mismatched total amounts");
-
         bytes32 operationId = keccak256(abi.encode(
             "reallocate",
             withdrawIds,
@@ -341,9 +244,9 @@ contract Bank is IBank, BankInternal, Timelock {
             depositAmounts
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit ReallocateScheduled(withdrawIds, withdrawAmounts, depositIds, depositAmounts, delay, operationId);
+        emit ReallocateScheduled(withdrawIds, withdrawAmounts, depositIds, depositAmounts, uint32(delay), operationId);
     }
 
     function executeReallocate(
@@ -368,30 +271,30 @@ contract Bank is IBank, BankInternal, Timelock {
         // Check and track total amounts
         uint256 totalWithdraw = 0;
         uint256 totalDeposit = 0;
-        for (uint256 i = 0; i < withdrawAmounts.length; i++) {
-            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
-            totalWithdraw += withdrawAmounts[i];
-        }
-        for (uint256 i = 0; i < depositAmounts.length; i++) {
-            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
-            totalDeposit += depositAmounts[i];
-        }
-        require(totalWithdraw == totalDeposit, "Bank: Mismatched total amounts");
+        uint256 len = withdrawIds.length;
 
         // Perform withdrawals
-        for (uint256 i = 0; i < withdrawIds.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
+            require(isMarketEnabled[withdrawIds[i]], "Bank: Withdraw market not enabled");
+
             if (withdrawAmounts[i] > 0) {
                 untitledHub.withdraw(withdrawIds[i], withdrawAmounts[i], address(this));
+                totalWithdraw += withdrawAmounts[i];
             }
         }
 
         // Perform deposits
-        for (uint256 i = 0; i < depositIds.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
+            require(isMarketEnabled[depositIds[i]], "Bank: Deposit market not enabled");
+
             if (depositAmounts[i] > 0) {
                 IERC20(asset()).approve(address(untitledHub), depositAmounts[i]);
                 untitledHub.supply(depositIds[i], depositAmounts[i], "");
+                totalDeposit += depositAmounts[i];
             }
         }
+
+        require(totalWithdraw == totalDeposit, "Bank: Mismatched total amounts");
 
         emit Reallocated(withdrawIds, withdrawAmounts, depositIds, depositAmounts);
     }
@@ -416,16 +319,14 @@ contract Bank is IBank, BankInternal, Timelock {
     }
 
     function scheduleSetFee(uint256 newFee, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(newFee <= 1000, "Bank: Fee too high"); // Max 10%
-
         bytes32 operationId = keccak256(abi.encode(
             "setFee",
             newFee
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit FeeUpdateScheduled(newFee, delay, operationId);
+        emit FeeUpdateScheduled(newFee, uint32(delay), operationId);
     }
 
     function executeSetFee(uint256 newFee) external onlyRole(EXECUTOR_ROLE) {
@@ -459,9 +360,9 @@ contract Bank is IBank, BankInternal, Timelock {
             newFeeRecipient
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit FeeRecipientUpdateScheduled(newFeeRecipient, delay, operationId);
+        emit FeeRecipientUpdateScheduled(newFeeRecipient, uint32(delay), operationId);
     }
 
     function executeSetFeeRecipient(address newFeeRecipient) external onlyRole(EXECUTOR_ROLE) {
@@ -493,14 +394,13 @@ contract Bank is IBank, BankInternal, Timelock {
         bool status,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(bankType == BankType.Private, "Bank: Not a Private Bank");
         bytes32 operationId = keccak256(abi.encode(
             "updateWhitelist",
             account,
             status
         ));
-        scheduleOperation(operationId, delay);
-        emit WhitelistUpdateScheduled(account, status, delay, operationId);
+        scheduleOperation(operationId, uint32(delay));
+        emit WhitelistUpdateScheduled(account, status, uint32(delay), operationId);
     }
 
     function executeUpdateWhitelist(address account, bool status) external onlyRole(EXECUTOR_ROLE) {

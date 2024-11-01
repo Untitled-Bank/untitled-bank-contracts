@@ -65,7 +65,7 @@ contract BankTest is Test {
     address public feeRecipient;
     
     uint256 public constant INITIAL_BALANCE = 1000e18;
-    uint256 public constant MIN_DELAY = 1 days;
+    uint32 public constant MIN_DELAY = 1 days;
     uint256 public constant FEE = 500; // 5%
 
     event MarketAdded(uint256 indexed id);
@@ -645,7 +645,8 @@ contract BankTest is Test {
         vm.stopPrank();
 
         // Warp time to accrue interest
-        vm.warp(block.timestamp + 180 days);
+        timestamp += 180 days;
+        vm.warp(timestamp);
         
         // Record state before removal
         uint256 initialTotalAssets = bank.totalAssets();
@@ -712,10 +713,15 @@ contract BankTest is Test {
     }
 
     function testRemoveNonExistentMarket() public {
+        uint256 timestamp = block.timestamp;
+
         uint256 nonExistentMarketId = 999;
         
-        vm.expectRevert("Bank: Market not enabled");
         bank.scheduleRemoveMarket(nonExistentMarketId, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        vm.expectRevert("Bank: Market not enabled");
+        bank.executeRemoveMarket(nonExistentMarketId);
     }
 
     function testRemoveAndReaddMarket() public {
@@ -861,14 +867,20 @@ contract BankTest is Test {
         withdrawAmounts[0] = 300e18;
         depositAmounts[0] = 200e18;
         
-        vm.expectRevert("Bank: Mismatched total amounts");
         bank.scheduleReallocate(withdrawIds, withdrawAmounts, depositIds, depositAmounts, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        vm.expectRevert("Bank: Mismatched total amounts");
+        bank.executeReallocate(withdrawIds, withdrawAmounts, depositIds, depositAmounts);
 
         // Test invalid allocation update (total != 100%)
         newAllocations2[0].allocation = 5000;
         newAllocations2[1].allocation = 6000; // Total > 100%
         
-        vm.expectRevert("Bank: Total allocation must be 100%");
         bank.scheduleUpdateAllocations(newAllocations2, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        vm.expectRevert("Bank: Total allocation must be 100%");
+        bank.executeUpdateAllocations(newAllocations2);
     }
 }

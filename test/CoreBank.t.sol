@@ -64,7 +64,7 @@ contract CoreBankTest is Test {
     address public feeRecipient;
     
     uint256 public constant INITIAL_BALANCE = 1000e18;
-    uint256 public constant MIN_DELAY = 1 days;
+    uint32 public constant MIN_DELAY = 1 days;
 
     event BankAdded(address indexed bank);
     event BankRemoved(address indexed bank);
@@ -421,6 +421,8 @@ contract CoreBankTest is Test {
     }
 
     function testInvalidBankAddition() public {
+        uint256 timestamp = block.timestamp;
+
         // Try to add bank with mismatched asset
         MockERC20 differentToken = new MockERC20("Different Token", "DIFF");
         Bank invalidBank = new Bank(
@@ -435,11 +437,16 @@ contract CoreBankTest is Test {
             IBank.BankType.Public
         );
 
-        vm.expectRevert("CoreBank: Bank asset mismatch");
         coreBank.scheduleAddBank(address(invalidBank), MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        vm.expectRevert("CoreBank: Bank asset mismatch");
+        coreBank.executeAddBank(address(invalidBank));
     }
 
     function testPrivateBankAddition() public {
+        uint256 timestamp = block.timestamp;
+        
         // Deploy private bank
         Bank privateBank = new Bank(
             IERC20(address(loanToken)),
@@ -454,8 +461,11 @@ contract CoreBankTest is Test {
         );
 
         // Try to add private bank
-        vm.expectRevert("CoreBank: Not a Public Bank");
         coreBank.scheduleAddBank(address(privateBank), MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        vm.expectRevert("CoreBank: Not a Public Bank");
+        coreBank.executeAddBank(address(privateBank));
     }
 
     function testComplexScenario() public {

@@ -26,7 +26,7 @@ contract BankFactory {
         string memory symbol,
         uint256 initialFee,
         address initialFeeRecipient,
-        uint256 minDelay,
+        uint32 minDelay,
         IBank.BankType bankType
     ) external returns (Bank) {
         Bank newBank = new Bank(

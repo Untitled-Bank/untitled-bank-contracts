@@ -59,67 +59,10 @@ abstract contract BankInternal is ERC4626, BankStorage {
         }
         _accrueFee();
 
-        uint256 remaining = assets;
-        uint256[] memory marketWithdrawals = new uint256[](marketAllocations.length);
-        uint256[] memory marketLiquidities = new uint256[](marketAllocations.length);
-
-        // First pass: Try to withdraw according to allocations
-        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
-            IBank.MarketAllocation memory allocation = marketAllocations[i];
-            if (!isMarketEnabled[allocation.id] || allocation.allocation == 0) {
-                continue;
-            }
-            uint256 targetWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);            
-            uint256 availableLiquidity = _marketLiquidityAfterAccruedInterest(allocation.id);
-            marketLiquidities[i] = availableLiquidity;
-
-            // Check how much we can actually withdraw from this market
-            (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
-            (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
-            uint256 availableAssets = Math.min(availableLiquidity, supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares));
-            
-            uint256 actualWithdraw = Math.min(targetWithdraw, availableAssets);
-            if (actualWithdraw > 0) {
-                try untitledHub.withdraw(allocation.id, actualWithdraw, address(this)) {
-                    marketWithdrawals[i] = actualWithdraw;
-                    remaining -= actualWithdraw;
-                } catch {
-                    // If the withdraw fails, we skip this market
-                }
-            }
+        if (_executeWithdraw(assets)) {
+            super._withdraw(caller, receiver, owner, assets, shares);
+            lastTotalAssets = totalAssets();
         }
-        
-        // Second pass: Try to withdraw remaining assets from markets with available liquidity
-        if (remaining > 0) {
-            for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
-                IBank.MarketAllocation memory allocation = marketAllocations[i];
-                if (!isMarketEnabled[allocation.id] || allocation.allocation == 0) {
-                    continue;
-                }
-                
-                // Check remaining available assets in this market
-                (uint256 supplyShares, , ) = untitledHub.position(allocation.id, address(this));
-                (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(allocation.id);
-                uint256 availableAssets = Math.min(marketLiquidities[i], supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares));                
-
-                // Subtract what we've already withdrawn
-                availableAssets = availableAssets > marketWithdrawals[i] ? availableAssets - marketWithdrawals[i] : 0;
-                
-                if (availableAssets > 0) {
-                    try untitledHub.withdraw(allocation.id, Math.min(remaining, availableAssets), address(this)) {
-                        marketWithdrawals[i] += Math.min(remaining, availableAssets);
-                        remaining -= Math.min(remaining, availableAssets);
-                    } catch {
-                        // If the withdraw fails, we skip this market
-                    }
-                }
-            }
-        }
-
-        require(remaining == 0, "Insufficient liquidity across all markets");
-        
-        super._withdraw(caller, receiver, owner, assets, shares);
-        lastTotalAssets = totalAssets();
     }
 
     function totalAssets() public view virtual override returns (uint256) {
@@ -159,5 +102,97 @@ abstract contract BankInternal is ERC4626, BankStorage {
 
     function maxWithdraw(address owner) public view override returns (uint256) {
         return convertToAssets(balanceOf(owner));
+    }
+
+    function _executeWithdraw(uint256 assets) private returns (bool) {
+        uint256[] memory marketWithdrawals = new uint256[](marketAllocations.length);
+        uint256[] memory marketLiquidities = new uint256[](marketAllocations.length);
+        uint256 remaining = assets;
+        
+        remaining = _withdrawByAllocation(remaining, marketWithdrawals, marketLiquidities);
+        
+        if (remaining > 0) {
+            remaining = _withdrawFromRemainingLiquidity(remaining, marketWithdrawals, marketLiquidities);
+        }
+        
+        return remaining == 0;
+    }
+
+    function _withdrawByAllocation(
+        uint256 remaining,
+        uint256[] memory marketWithdrawals,
+        uint256[] memory marketLiquidities
+    ) private returns (uint256) {
+        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
+            if (!_isValidMarket(allocation)) continue;
+
+            uint256 targetWithdraw = remaining.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
+            marketLiquidities[i] = _marketLiquidityAfterAccruedInterest(allocation.id);
+            
+            uint256 availableAssets = _calculateAvailableAssets(allocation.id, marketLiquidities[i]);
+            uint256 withdrawAmount = Math.min(targetWithdraw, availableAssets);
+            
+            if (withdrawAmount > 0) {
+                uint256 withdrawn = _tryWithdraw(allocation.id, withdrawAmount);
+                if (withdrawn > 0) {
+                    marketWithdrawals[i] = withdrawn;
+                    remaining -= withdrawn;
+                }
+            }
+        }
+        return remaining;
+    }
+
+    function _withdrawFromRemainingLiquidity(
+        uint256 remaining,
+        uint256[] memory marketWithdrawals,
+        uint256[] memory marketLiquidities
+    ) private returns (uint256) {
+        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
+            if (!_isValidMarket(allocation)) continue;
+            
+            uint256 availableAssets = _calculateAvailableAssets(allocation.id, marketLiquidities[i]);
+            availableAssets = availableAssets > marketWithdrawals[i] ? 
+                availableAssets - marketWithdrawals[i] : 0;
+            
+            if (availableAssets > 0) {
+                uint256 withdrawAmount = Math.min(remaining, availableAssets);
+                uint256 withdrawn = _tryWithdraw(allocation.id, withdrawAmount);
+                if (withdrawn > 0) {
+                    remaining -= withdrawn;
+                }
+            }
+        }
+        return remaining;
+    }
+
+    function _isValidMarket(IBank.MarketAllocation memory allocation) private view returns (bool) {
+        return isMarketEnabled[allocation.id] && allocation.allocation > 0;
+    }
+
+    function _calculateAvailableAssets(
+        uint256 marketId,
+        uint256 availableLiquidity
+    ) private view returns (uint256) {
+        (uint256 supplyShares, , ) = untitledHub.position(marketId, address(this));
+        (uint128 totalSupplyAssets, uint128 totalSupplyShares, , , , ) = untitledHub.market(marketId);
+        
+        return Math.min(
+            availableLiquidity,
+            supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares)
+        );
+    }
+
+    function _tryWithdraw(
+        uint256 marketId,
+        uint256 amount
+    ) private returns (uint256) {
+        try untitledHub.withdraw(marketId, amount, address(this)) {
+            return amount;
+        } catch {
+            return 0;
+        }
     }
 }

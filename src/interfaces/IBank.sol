@@ -18,9 +18,6 @@ interface IBank is IERC4626 {
     function scheduleAddMarket(uint256 id, uint256 delay) external;
     function executeAddMarket(uint256 id) external;
     function cancelAddMarket(uint256 id) external;
-    function scheduleAddMarkets(uint256[] calldata ids, uint256 delay) external;
-    function executeAddMarkets(uint256[] calldata ids) external;
-    function cancelAddMarkets(uint256[] calldata ids) external;
     function scheduleRemoveMarket(uint256 id, uint256 delay) external;
     function executeRemoveMarket(uint256 id) external;
     function cancelRemoveMarket(uint256 id) external;

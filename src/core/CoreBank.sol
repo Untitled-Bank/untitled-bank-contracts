@@ -13,7 +13,7 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
         IERC20 _asset,
         string memory _name,
         string memory _symbol,
-        uint256 _minDelay,
+        uint32 _minDelay,
         address _initialAdmin
     )
         ERC4626(_asset)
@@ -24,24 +24,16 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
 
     function scheduleAddBank(
         address bank,
-        uint256 delay
+        uint32 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(bank != address(0), "CoreBank: Invalid bank address");
-        require(!isBankEnabled[bank], "CoreBank: Bank already added");
-        require(IBank(bank).asset() == asset(), "CoreBank: Bank asset mismatch");
-        require(
-            IBank(address(bank)).getBankType() == IBank.BankType.Public,
-            "CoreBank: Not a Public Bank"
-        );
-
         bytes32 operationId = keccak256(abi.encode(
             "addBank",
             bank
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit BankAdditionScheduled(bank, delay, operationId);
+        emit BankAdditionScheduled(bank, uint32(delay), operationId);
     }
 
     function executeAddBank(address bank) external onlyRole(EXECUTOR_ROLE) {
@@ -63,7 +55,9 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
 
         if (bankAllocations.length == 0) {
             bankAllocations.push(BankAllocation(IBank(bank), BASIS_POINTS));
+            bankToIndex[bank] = 0;
         } else {
+            bankToIndex[bank] = bankAllocations.length;
             bankAllocations.push(BankAllocation(IBank(bank), 0));
         }
         isBankEnabled[bank] = true;
@@ -82,17 +76,15 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
         emit BankAdditionCancelled(bank, operationId);
     }
 
-    function scheduleRemoveBank(address bank, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(isBankEnabled[bank], "Bank not enabled");
-
+    function scheduleRemoveBank(address bank, uint32 delay) external onlyRole(PROPOSER_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "removeBank",
             bank
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit BankRemovalScheduled(bank, delay, operationId);
+        emit BankRemovalScheduled(bank, uint32(delay), operationId);
     }
 
     function executeRemoveBank(address bank) external onlyRole(EXECUTOR_ROLE) {
@@ -105,24 +97,25 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
 
         executeOperation(operationId);
 
-        uint256 withdrawnAssets = 0;
-        uint256 removedAllocation;
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            if (address(bankAllocations[i].bank) == bank) {
-                removedAllocation = bankAllocations[i].allocation;
-                uint256 balance = IBank(bank).balanceOf(address(this));
-                if (balance > 0) {
-                    uint256 assets = IBank(bank).convertToAssets(balance);
-                    IBank(bank).withdraw(assets, address(this), address(this));
-                    withdrawnAssets += assets;
-                }
+        uint256 index = bankToIndex[bank];
+        require(index < bankAllocations.length && address(bankAllocations[index].bank) == bank, "CoreBank: Bank index mismatch");
 
-                bankAllocations[i] = bankAllocations[bankAllocations.length - 1];
-                bankAllocations.pop();
-                break;
-            }
+        uint256 removedAllocation = bankAllocations[index].allocation;
+        uint256 balance = IBank(bank).balanceOf(address(this));
+        uint256 withdrawnAssets = 0;
+        if (balance > 0) {
+            uint256 assets = IBank(bank).convertToAssets(balance);
+            IBank(bank).withdraw(assets, address(this), address(this));
+            withdrawnAssets += assets;
         }
 
+        uint256 lastIndex = bankAllocations.length - 1;
+        if (index != lastIndex) {
+            bankAllocations[index] = bankAllocations[lastIndex];
+            bankToIndex[address(bankAllocations[lastIndex].bank)] = index;
+        }
+        bankAllocations.pop();
+        delete bankToIndex[bank];
         isBankEnabled[bank] = false;     
 
         if (withdrawnAssets > 0) {
@@ -165,9 +158,7 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
         emit BankRemovalCancelled(bank, operationId);
     }
 
-    function scheduleUpdateAllocations(BankAllocation[] calldata newBankAllocations, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(newBankAllocations.length == bankAllocations.length, "CoreBank: Mismatched arrays");
-
+    function scheduleUpdateAllocations(BankAllocation[] calldata newBankAllocations, uint32 delay) external onlyRole(PROPOSER_ROLE) {
         // Check if all markets are enabled and allocations are valid
         uint256 totalAllocation = 0;
         for (uint256 i = 0; i < newBankAllocations.length; i++) {
@@ -186,9 +177,9 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
             newBankAllocations
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit AllocationsUpdateScheduled(newBankAllocations, delay, operationId);
+        emit AllocationsUpdateScheduled(newBankAllocations, uint32(delay), operationId);
     }
 
     function executeUpdateAllocations(BankAllocation[] calldata newBankAllocations) external onlyRole(EXECUTOR_ROLE) {
@@ -237,24 +228,8 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
         uint256[] calldata withdrawAmounts,
         address[] calldata depositBanks,
         uint256[] calldata depositAmounts,
-        uint256 delay
+        uint32 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(withdrawBanks.length == withdrawAmounts.length, "CoreBank: Mismatched withdraw arrays");
-        require(depositBanks.length == depositAmounts.length, "CoreBank: Mismatched deposit arrays");
-
-        // Check total amounts match
-        uint256 totalWithdraw = 0;
-        uint256 totalDeposit = 0;
-        for (uint256 i = 0; i < withdrawAmounts.length; i++) {
-            require(isBankEnabled[address(withdrawBanks[i])], "CoreBank: Withdraw bank not enabled");
-            totalWithdraw += withdrawAmounts[i];
-        }
-        for (uint256 i = 0; i < depositAmounts.length; i++) {
-            require(isBankEnabled[address(depositBanks[i])], "CoreBank: Deposit bank not enabled");
-            totalDeposit += depositAmounts[i];
-        }
-        require(totalWithdraw == totalDeposit, "CoreBank: Mismatched total amounts");
-
         bytes32 operationId = keccak256(abi.encode(
             "reallocate",
             withdrawBanks,
@@ -263,9 +238,9 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
             depositAmounts
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit ReallocateScheduled(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts, delay, operationId);
+        emit ReallocateScheduled(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts, uint32(delay), operationId);
     }
 
     function executeReallocate(
@@ -287,34 +262,32 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
         // Check total amounts match
         uint256 totalWithdraw = 0;
         uint256 totalDeposit = 0;
-        for (uint256 i = 0; i < withdrawAmounts.length; i++) {
-            require(isBankEnabled[address(withdrawBanks[i])], "CoreBank: Withdraw bank not enabled");
-            totalWithdraw += withdrawAmounts[i];
-        }
-        for (uint256 i = 0; i < depositAmounts.length; i++) {
-            require(isBankEnabled[address(depositBanks[i])], "CoreBank: Deposit bank not enabled");
-            totalDeposit += depositAmounts[i];
-        }
-        require(totalWithdraw == totalDeposit, "CoreBank: Mismatched total amounts");
+        uint256 len = withdrawAmounts.length;
 
         // Perform withdrawals
-        for (uint256 i = 0; i < withdrawBanks.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
+            require(isBankEnabled[address(withdrawBanks[i])], "CoreBank: Withdraw bank not enabled");
             if (withdrawAmounts[i] > 0) {
                 IBank(withdrawBanks[i]).withdraw(
                     withdrawAmounts[i],
                     address(this),
                     address(this)
                 );
+                totalWithdraw += withdrawAmounts[i];
             }
         }
 
         // Perform deposits
-        for (uint256 i = 0; i < depositBanks.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
+            require(isBankEnabled[address(depositBanks[i])], "CoreBank: Deposit bank not enabled");
             if (depositAmounts[i] > 0) {
                 IERC20(asset()).approve(address(depositBanks[i]), depositAmounts[i]);
                 IBank(depositBanks[i]).deposit(depositAmounts[i], address(this));
+                totalDeposit += depositAmounts[i];
             }
         }
+
+        require(totalWithdraw == totalDeposit, "CoreBank: Mismatched total amounts");
 
         emit ReallocateExecuted(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts);
     }

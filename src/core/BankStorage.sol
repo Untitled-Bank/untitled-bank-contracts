@@ -8,6 +8,7 @@ contract BankStorage {
     UntitledHub public immutable untitledHub;
     IBank.MarketAllocation[] public marketAllocations;
     mapping(uint256 => bool) public isMarketEnabled;
+    mapping(uint256 => uint256) public marketIdToIndex;
 
     uint256 public constant MAX_MARKETS = 10;
     uint256 public constant BASIS_POINTS = 10000;
