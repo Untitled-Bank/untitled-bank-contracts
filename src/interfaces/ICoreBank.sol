@@ -11,32 +11,42 @@ interface ICoreBank is IERC4626 {
         uint256 allocation;
     }
 
-    function scheduleAddBank(address bank, uint256 allocation, uint256 delay) external;
-    function executeAddBank(address bank, uint256 allocation) external;
-    function scheduleRemoveBank(address bank, uint256 delay) external;
+    function scheduleAddBank(address bank, uint32 delay) external;
+    function executeAddBank(address bank) external;
+    function cancelAddBank(address bank) external;
+    function scheduleRemoveBank(address bank, uint32 delay) external;
     function executeRemoveBank(address bank) external;
-    function scheduleUpdateAllocation(address bank, uint256 newAllocation, uint256 delay) external;
-    function executeUpdateAllocation(address bank, uint256 newAllocation) external;
+    function cancelRemoveBank(address bank) external;
+    function scheduleUpdateAllocations(BankAllocation[] calldata newBankAllocations, uint32 delay) external;
+    function executeUpdateAllocations(BankAllocation[] calldata newBankAllocations) external;
+    function cancelUpdateAllocations(BankAllocation[] calldata newBankAllocations) external;
+    function scheduleReallocate(address[] calldata withdrawBanks, uint256[] calldata withdrawAmounts, address[] calldata depositBanks, uint256[] calldata depositAmounts, uint32 delay) external;
+    function executeReallocate(address[] calldata withdrawBanks, uint256[] calldata withdrawAmounts, address[] calldata depositBanks, uint256[] calldata depositAmounts) external;
+    function cancelReallocate(address[] calldata withdrawBanks, uint256[] calldata withdrawAmounts, address[] calldata depositBanks, uint256[] calldata depositAmounts) external;
     function getBankAllocations() external view returns (BankAllocation[] memory);
 
     event BankAdditionScheduled(
         address indexed bank,
-        uint256 allocation,
-        uint256 delay,
+        uint32 delay,
         bytes32 operationId
     );
-    event BankAdded(address indexed bank, uint256 allocation);
+    event BankAdded(address indexed bank);
     event BankRemovalScheduled(
         address indexed bank,
-        uint256 delay,
+        uint32 delay,
         bytes32 operationId
     );
     event BankRemoved(address indexed bank);
-    event AllocationUpdateScheduled(
-        address indexed bank,
-        uint256 newAllocation,
-        uint256 delay,
+    event AllocationsUpdateScheduled(
+        BankAllocation[] newBankAllocations,
+        uint32 delay,
         bytes32 operationId
     );
-    event AllocationUpdated(address indexed bank, uint256 newAllocation);
+    event AllocationsUpdated(BankAllocation[] newBankAllocations);
+    event BankAdditionCancelled(address indexed bank, bytes32 indexed operationId);
+    event BankRemovalCancelled(address indexed bank, bytes32 indexed operationId);
+    event AllocationsUpdateCancelled(BankAllocation[] newBankAllocations, bytes32 indexed operationId);
+    event ReallocateScheduled(address[] withdrawBanks, uint256[] withdrawAmounts, address[] depositBanks, uint256[] depositAmounts, uint32 delay, bytes32 indexed operationId);
+    event ReallocateExecuted(address[] withdrawBanks, uint256[] withdrawAmounts, address[] depositBanks, uint256[] depositAmounts);
+    event ReallocateCancelled(address[] withdrawBanks, uint256[] withdrawAmounts, address[] depositBanks, uint256[] depositAmounts, bytes32 indexed operationId);
 }

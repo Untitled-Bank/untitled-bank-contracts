@@ -4,13 +4,16 @@ pragma solidity ^0.8.20;
 import "../interfaces/ICoreBank.sol";
 import "./CoreBankInternal.sol";
 import "../libraries/Timelock.sol";
+import "../libraries/math/WadMath.sol";
 
 contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
+    using WadMath for uint256;
+
     constructor(
         IERC20 _asset,
         string memory _name,
         string memory _symbol,
-        uint256 _minDelay,
+        uint32 _minDelay,
         address _initialAdmin
     )
         ERC4626(_asset)
@@ -21,82 +24,72 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
 
     function scheduleAddBank(
         address bank,
-        uint256 allocation,
-        uint256 delay
+        uint32 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(bank != address(0), "CoreBank: Invalid bank address");
-        require(!isBankEnabled[bank], "CoreBank: Bank already added");
-        require(
-            allocation > 0 && allocation <= BASIS_POINTS,
-            "CoreBank: Invalid allocation"
-        );
-        require(IBank(bank).asset() == asset(), "CoreBank: Bank asset mismatch");
-        require(
-            IBank(address(bank)).getBankType() == IBank.BankType.Public,
-            "CoreBank: Not a Public Bank"
-        );
-
         bytes32 operationId = keccak256(abi.encode(
             "addBank",
-            bank,
-            allocation
+            bank
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit BankAdditionScheduled(bank, allocation, delay, operationId);
+        emit BankAdditionScheduled(bank, uint32(delay), operationId);
     }
 
-    function executeAddBank(address bank, uint256 allocation) external onlyRole(EXECUTOR_ROLE) {
+    function executeAddBank(address bank) external onlyRole(EXECUTOR_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "addBank",
-            bank,
-            allocation
+            bank
         ));
 
         executeOperation(operationId);
 
         require(bank != address(0), "CoreBank: Invalid bank address");
         require(!isBankEnabled[bank], "CoreBank: Bank already added");
-        require(
-            allocation > 0 && allocation <= BASIS_POINTS,
-            "CoreBank: Invalid allocation"
-        );
+
         require(IBank(bank).asset() == asset(), "CoreBank: Bank asset mismatch");
         require(
             IBank(address(bank)).getBankType() == IBank.BankType.Public,
             "CoreBank: Not a Public Bank"
         );
 
-        uint256 totalAllocation = allocation;
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            totalAllocation += bankAllocations[i].allocation;
+        if (bankAllocations.length == 0) {
+            bankAllocations.push(BankAllocation(IBank(bank), BASIS_POINTS));
+            bankToIndex[bank] = 0;
+        } else {
+            bankToIndex[bank] = bankAllocations.length;
+            bankAllocations.push(BankAllocation(IBank(bank), 0));
         }
-        require(
-            totalAllocation <= BASIS_POINTS,
-            "CoreBank: Total allocation exceeds 100%"
-        );
-
-        bankAllocations.push(BankAllocation(IBank(bank), allocation));
         isBankEnabled[bank] = true;
 
-        emit BankAdded(bank, allocation);
+        emit BankAdded(bank);
     }
 
-    function scheduleRemoveBank(address bank, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(isBankEnabled[bank], "Bank not enabled");
+    function cancelAddBank(address bank) external onlyRole(PROPOSER_ROLE) {
+        bytes32 operationId = keccak256(abi.encode(
+            "addBank",
+            bank
+        ));
 
+        cancelOperation(operationId);
+
+        emit BankAdditionCancelled(bank, operationId);
+    }
+
+    function scheduleRemoveBank(address bank, uint32 delay) external onlyRole(PROPOSER_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "removeBank",
             bank
         ));
 
-        scheduleOperation(operationId, delay);
+        scheduleOperation(operationId, uint32(delay));
 
-        emit BankRemovalScheduled(bank, delay, operationId);
+        emit BankRemovalScheduled(bank, uint32(delay), operationId);
     }
 
     function executeRemoveBank(address bank) external onlyRole(EXECUTOR_ROLE) {
+        require(isBankEnabled[bank], "Bank not enabled");
+
         bytes32 operationId = keccak256(abi.encode(
             "removeBank",
             bank
@@ -104,68 +97,218 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
 
         executeOperation(operationId);
 
-        require(isBankEnabled[bank], "Bank not enabled");
+        uint256 index = bankToIndex[bank];
+        require(index < bankAllocations.length && address(bankAllocations[index].bank) == bank, "CoreBank: Bank index mismatch");
 
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            if (address(bankAllocations[i].bank) == bank) {
-                bankAllocations[i] = bankAllocations[bankAllocations.length - 1];
-                bankAllocations.pop();
-                break;
-            }
+        uint256 removedAllocation = bankAllocations[index].allocation;
+        uint256 balance = IBank(bank).balanceOf(address(this));
+        uint256 withdrawnAssets = 0;
+        if (balance > 0) {
+            uint256 assets = IBank(bank).convertToAssets(balance);
+            IBank(bank).withdraw(assets, address(this), address(this));
+            withdrawnAssets += assets;
         }
-        isBankEnabled[bank] = false;
+
+        uint256 lastIndex = bankAllocations.length - 1;
+        if (index != lastIndex) {
+            bankAllocations[index] = bankAllocations[lastIndex];
+            bankToIndex[address(bankAllocations[lastIndex].bank)] = index;
+        }
+        bankAllocations.pop();
+        delete bankToIndex[bank];
+        isBankEnabled[bank] = false;     
+
+        if (withdrawnAssets > 0) {
+            uint256 totalRemainingAllocation = BASIS_POINTS - removedAllocation;
+            require(bankAllocations.length > 0, "CoreBank: Cannot remove last bank if there are still assets in the bank");
+            require(totalRemainingAllocation > 0, "CoreBank: Total remaining allocation is 0");
+
+            if (totalRemainingAllocation < BASIS_POINTS) {
+                for (uint256 i = 0; i < bankAllocations.length; i++) {
+                    bankAllocations[i].allocation = bankAllocations[i].allocation * BASIS_POINTS / totalRemainingAllocation;
+                }
+            }
+
+            uint256 remaining = withdrawnAssets;
+            for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+                BankAllocation memory allocation = bankAllocations[i];
+                uint256 toDeposit = withdrawnAssets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
+                toDeposit = Math.min(toDeposit, remaining);
+
+                if (toDeposit > 0) {
+                    IERC20(asset()).approve(address(allocation.bank), toDeposit);
+                    allocation.bank.deposit(toDeposit, address(this));
+                    remaining -= toDeposit;
+                }
+            }
+            require(remaining == 0, "Not all assets deposited");
+        }
 
         emit BankRemoved(bank);
     }
 
-    function scheduleUpdateAllocation(address bank, uint256 newAllocation, uint256 delay) external onlyRole(PROPOSER_ROLE) {
-        require(isBankEnabled[bank], "Bank not enabled");
-        require(
-            newAllocation > 0 && newAllocation <= BASIS_POINTS,
-            "CoreBank: Invalid allocation"
-        );
-
+    function cancelRemoveBank(address bank) external onlyRole(PROPOSER_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
-            "updateAllocation",
-            bank,
-            newAllocation
+            "removeBank",
+            bank
         ));
 
-        scheduleOperation(operationId, delay);
+        cancelOperation(operationId);
 
-        emit AllocationUpdateScheduled(bank, newAllocation, delay, operationId);
+        emit BankRemovalCancelled(bank, operationId);
     }
 
-    function executeUpdateAllocation(address bank, uint256 newAllocation) external onlyRole(EXECUTOR_ROLE) {
+    function scheduleUpdateAllocations(BankAllocation[] calldata newBankAllocations, uint32 delay) external onlyRole(PROPOSER_ROLE) {
+        // Check if all markets are enabled and allocations are valid
+        uint256 totalAllocation = 0;
+        for (uint256 i = 0; i < newBankAllocations.length; i++) {
+            require(isBankEnabled[address(newBankAllocations[i].bank)], "CoreBank: Bank not enabled");
+            require(
+                newBankAllocations[i].allocation > 0 && 
+                newBankAllocations[i].allocation <= BASIS_POINTS, 
+                "CoreBank: Invalid allocation"
+            );
+            totalAllocation += newBankAllocations[i].allocation;
+        }
+        require(totalAllocation == BASIS_POINTS, "CoreBank: Total allocation must be 100%");
+
         bytes32 operationId = keccak256(abi.encode(
-            "updateAllocation",
-            bank,
-            newAllocation
+            "updateAllocations",
+            newBankAllocations
+        ));
+
+        scheduleOperation(operationId, uint32(delay));
+
+        emit AllocationsUpdateScheduled(newBankAllocations, uint32(delay), operationId);
+    }
+
+    function executeUpdateAllocations(BankAllocation[] calldata newBankAllocations) external onlyRole(EXECUTOR_ROLE) {
+        require(newBankAllocations.length == bankAllocations.length, "CoreBank: Mismatched arrays");
+
+        bytes32 operationId = keccak256(abi.encode(
+            "updateAllocations",
+            newBankAllocations
         ));
 
         executeOperation(operationId);
 
-        require(isBankEnabled[bank], "Bank not enabled");
-
-        uint256 totalAllocation = newAllocation;
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            if (address(bankAllocations[i].bank) != bank) {
-                totalAllocation += bankAllocations[i].allocation;
-            }
+        uint256 totalAllocation = 0;
+        for (uint256 i = 0; i < newBankAllocations.length; i++) {
+            require(isBankEnabled[address(newBankAllocations[i].bank)], "CoreBank: Bank not enabled");
+            require(
+                newBankAllocations[i].allocation > 0 && 
+                newBankAllocations[i].allocation <= BASIS_POINTS, 
+                "CoreBank: Invalid allocation"
+            );
+            totalAllocation += newBankAllocations[i].allocation;
         }
-        require(
-            totalAllocation <= BASIS_POINTS,
-            "Total allocation exceeds 100%"
-        );
+        require(totalAllocation == BASIS_POINTS, "CoreBank: Total allocation must be 100%");
 
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
-            if (address(bankAllocations[i].bank) == bank) {
-                bankAllocations[i].allocation = newAllocation;
-                break;
-            }
+        delete bankAllocations;
+        for (uint256 i = 0; i < newBankAllocations.length; i++) {
+            bankAllocations.push(newBankAllocations[i]);
         }
 
-        emit AllocationUpdated(bank, newAllocation);
+        emit AllocationsUpdated(newBankAllocations);
+    }
+
+    function cancelUpdateAllocations(BankAllocation[] calldata newBankAllocations) external onlyRole(PROPOSER_ROLE) {
+        bytes32 operationId = keccak256(abi.encode(
+            "updateAllocations",
+            newBankAllocations
+        ));
+
+        cancelOperation(operationId);
+
+        emit AllocationsUpdateCancelled(newBankAllocations, operationId);
+    }
+
+    function scheduleReallocate(
+        address[] calldata withdrawBanks,
+        uint256[] calldata withdrawAmounts,
+        address[] calldata depositBanks,
+        uint256[] calldata depositAmounts,
+        uint32 delay
+    ) external onlyRole(PROPOSER_ROLE) {
+        bytes32 operationId = keccak256(abi.encode(
+            "reallocate",
+            withdrawBanks,
+            withdrawAmounts,
+            depositBanks,
+            depositAmounts
+        ));
+
+        scheduleOperation(operationId, uint32(delay));
+
+        emit ReallocateScheduled(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts, uint32(delay), operationId);
+    }
+
+    function executeReallocate(
+        address[] calldata withdrawBanks,
+        uint256[] calldata withdrawAmounts,
+        address[] calldata depositBanks,
+        uint256[] calldata depositAmounts
+    ) external onlyRole(EXECUTOR_ROLE) {
+        bytes32 operationId = keccak256(abi.encode(
+            "reallocate",
+            withdrawBanks,
+            withdrawAmounts,
+            depositBanks,
+            depositAmounts
+        ));
+
+        executeOperation(operationId);
+
+        // Check total amounts match
+        uint256 totalWithdraw = 0;
+        uint256 totalDeposit = 0;
+        uint256 len = withdrawAmounts.length;
+
+        // Perform withdrawals
+        for (uint256 i = 0; i < len; i++) {
+            require(isBankEnabled[address(withdrawBanks[i])], "CoreBank: Withdraw bank not enabled");
+            if (withdrawAmounts[i] > 0) {
+                IBank(withdrawBanks[i]).withdraw(
+                    withdrawAmounts[i],
+                    address(this),
+                    address(this)
+                );
+                totalWithdraw += withdrawAmounts[i];
+            }
+        }
+
+        // Perform deposits
+        for (uint256 i = 0; i < len; i++) {
+            require(isBankEnabled[address(depositBanks[i])], "CoreBank: Deposit bank not enabled");
+            if (depositAmounts[i] > 0) {
+                IERC20(asset()).approve(address(depositBanks[i]), depositAmounts[i]);
+                IBank(depositBanks[i]).deposit(depositAmounts[i], address(this));
+                totalDeposit += depositAmounts[i];
+            }
+        }
+
+        require(totalWithdraw == totalDeposit, "CoreBank: Mismatched total amounts");
+
+        emit ReallocateExecuted(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts);
+    }
+
+    function cancelReallocate(
+        address[] calldata withdrawBanks,
+        uint256[] calldata withdrawAmounts,
+        address[] calldata depositBanks,
+        uint256[] calldata depositAmounts
+    ) external onlyRole(PROPOSER_ROLE) {
+        bytes32 operationId = keccak256(abi.encode(
+            "reallocate",
+            withdrawBanks,
+            withdrawAmounts,
+            depositBanks,
+            depositAmounts
+        ));
+        
+        cancelOperation(operationId);
+        
+        emit ReallocateCancelled(withdrawBanks, withdrawAmounts, depositBanks, depositAmounts, operationId);
     }
 
     function getBankAllocations()

@@ -31,7 +31,7 @@ contract CoreBankFactory {
         IERC20 asset,
         string memory name,
         string memory symbol,
-        uint256 minDelay,
+        uint32 minDelay,
         address initialAdmin
     ) external onlyOwner returns (CoreBank) {
         CoreBank newCoreBank = new CoreBank(

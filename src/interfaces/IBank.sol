@@ -15,44 +15,49 @@ interface IBank is IERC4626 {
         uint256 allocation;
     }
 
-    function scheduleAddMarket(uint256 id, uint256 allocation, uint256 delay) external;
-    function executeAddMarket(uint256 id, uint256 allocation) external;
-    function scheduleAddMarkets(uint256[] calldata ids, uint256[] calldata allocations, uint256 delay) external;
-    function executeAddMarkets(uint256[] calldata ids, uint256[] calldata allocations) external;
+    function scheduleAddMarket(uint256 id, uint256 delay) external;
+    function executeAddMarket(uint256 id) external;
+    function cancelAddMarket(uint256 id) external;
     function scheduleRemoveMarket(uint256 id, uint256 delay) external;
     function executeRemoveMarket(uint256 id) external;
-    function scheduleRemoveMarkets(uint256[] calldata ids, uint256 delay) external;
-    function executeRemoveMarkets(uint256[] calldata ids) external;
-    function scheduleUpdateAllocation(uint256 id, uint256 newAllocation, uint256 delay) external;
-    function executeUpdateAllocation(uint256 id, uint256 newAllocation) external;
+    function cancelRemoveMarket(uint256 id) external;
+    function scheduleUpdateAllocations(MarketAllocation[] calldata newMarketAllocations, uint256 delay) external;
+    function executeUpdateAllocations(MarketAllocation[] calldata newMarketAllocations) external;
+    function cancelUpdateAllocations(MarketAllocation[] calldata newMarketAllocations) external;
+    function scheduleReallocate(uint256[] calldata withdrawIds, uint256[] calldata withdrawAmounts, uint256[] calldata depositIds, uint256[] calldata depositAmounts, uint256 delay) external;
+    function executeReallocate(uint256[] calldata withdrawIds, uint256[] calldata withdrawAmounts, uint256[] calldata depositIds, uint256[] calldata depositAmounts) external;
+    function cancelReallocate(uint256[] calldata withdrawIds, uint256[] calldata withdrawAmounts, uint256[] calldata depositIds, uint256[] calldata depositAmounts) external;
     function scheduleSetFee(uint256 newFee, uint256 delay) external;
     function executeSetFee(uint256 newFee) external;
+    function cancelSetFee(uint256 newFee) external;
     function scheduleSetFeeRecipient(address newFeeRecipient, uint256 delay) external;
     function executeSetFeeRecipient(address newFeeRecipient) external;
+    function cancelSetFeeRecipient(address newFeeRecipient) external;
     function scheduleUpdateWhitelist(address account, bool status, uint256 delay) external;
     function executeUpdateWhitelist(address account, bool status) external;
+    function cancelUpdateWhitelist(address account, bool status) external;
     function harvest() external;
     function getBankType() external view returns (BankType);
     function getFee() external view returns (uint256);
     function getFeeRecipient() external view returns (address);
     function getMarketAllocations() external view returns (MarketAllocation[] memory);
+    function getIsMarketEnabled(uint256 id) external view returns (bool);
+    function getUntitledHub() external view returns (address);
     function isWhitelisted(address account) external view returns (bool);
 
     event BankTypeSet(BankType bankType);
     event MarketAdditionScheduled(
         uint256 indexed id,
-        uint256 allocation,
         uint256 delay,
         bytes32 operationId
     );
-    event MarketAdded(uint256 indexed id, uint256 allocation);
+    event MarketAdded(uint256 indexed id);
     event MarketsAdditionScheduled(
         uint256[] ids,
-        uint256[] allocations,
         uint256 delay,
         bytes32 operationId
     );
-    event MarketsAdded(uint256[] ids, uint256[] allocations);
+    event MarketsAdded(uint256[] ids);
     event MarketRemovalScheduled(
         uint256 indexed id,
         uint256 delay,
@@ -65,13 +70,12 @@ interface IBank is IERC4626 {
         bytes32 operationId
     );
     event MarketsRemoved(uint256[] ids);
-    event AllocationUpdateScheduled(
-        uint256 indexed id,
-        uint256 newAllocation,
+    event AllocationsUpdateScheduled(
+        MarketAllocation[] newMarketAllocations,
         uint256 delay,
         bytes32 operationId
     );
-    event AllocationUpdated(uint256 indexed id, uint256 newAllocation);
+    event AllocationsUpdated(MarketAllocation[] newMarketAllocations);
     event FeeUpdateScheduled(
         uint256 newFee,
         uint256 delay,
@@ -91,4 +95,35 @@ interface IBank is IERC4626 {
         bytes32 operationId
     );
     event WhitelistUpdated(address indexed account, bool status);
+    event MarketAdditionCancelled(uint256 indexed id, bytes32 indexed operationId);
+    event MarketsAdditionCancelled(uint256[] ids, bytes32 indexed operationId);
+    event MarketRemovalCancelled(uint256 indexed id, bytes32 indexed operationId);
+    event FeeUpdateCancelled(uint256 newFee, bytes32 indexed operationId);
+    event FeeRecipientUpdateCancelled(address newFeeRecipient, bytes32 indexed operationId);
+    event WhitelistUpdateCancelled(address account, bool status, bytes32 indexed operationId);
+    event AllocationsUpdateCancelled(MarketAllocation[] newMarketAllocations, bytes32 indexed operationId);
+    event ReallocationCancelled(uint256[] ids, uint256[] newAllocations, bytes32 indexed operationId);
+    event ReallocateScheduled(
+        uint256[] withdrawIds,
+        uint256[] withdrawAmounts,
+        uint256[] depositIds,
+        uint256[] depositAmounts,
+        uint256 delay,
+        bytes32 indexed operationId
+    );
+
+    event Reallocated(
+        uint256[] withdrawIds,
+        uint256[] withdrawAmounts,
+        uint256[] depositIds,
+        uint256[] depositAmounts
+    );
+
+    event ReallocateCancelled(
+        uint256[] withdrawIds,
+        uint256[] withdrawAmounts,
+        uint256[] depositIds,
+        uint256[] depositAmounts,
+        bytes32 indexed operationId
+    );
 }
