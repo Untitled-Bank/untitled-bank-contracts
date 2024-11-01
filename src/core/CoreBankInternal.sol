@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./CoreBankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
+import "../interfaces/IUntitledHub.sol";
 
 abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
     using Math for uint256;
@@ -23,6 +24,9 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
         uint256 remaining = assets;
         for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
             ICoreBank.BankAllocation memory allocation = bankAllocations[i];
+            if (!isBankEnabled[address(allocation.bank)] || allocation.allocation == 0) {
+                continue;
+            }
             uint256 toDeposit = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
             toDeposit = Math.min(toDeposit, remaining);
 
@@ -33,7 +37,7 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
             }
         }
 
-        require(remaining == 0, "Not all assets deposited");
+        require(remaining == 0, "CoreBank: Not all assets deposited");
     }
 
     function _withdraw(
@@ -44,29 +48,72 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
         uint256 shares
     ) internal override {
         uint256 remaining = assets;
-        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+        uint256[] memory bankWithdrawals = new uint256[](bankAllocations.length);
+        uint256[] memory bankLiquidities = new uint256[](bankAllocations.length);
+        
+        // First pass: Try to withdraw according to allocations
+        for (uint256 i = 0; i < bankAllocations.length; i++) {
             ICoreBank.BankAllocation memory allocation = bankAllocations[i];
-            uint256 bankShares = allocation.bank.balanceOf(address(this));
-            uint256 bankAssets = allocation.bank.convertToAssets(bankShares);
-            uint256 toWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
-            toWithdraw = Math.min(toWithdraw, bankAssets);
-            toWithdraw = Math.min(toWithdraw, remaining);
+            if (!isBankEnabled[address(allocation.bank)] || allocation.allocation == 0) {
+                continue;
+            }
+            uint256 targetWithdraw = assets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
+            uint256 bankAvailableLiquidity = _getBankWithdrawableLiquidity(address(allocation.bank));            
+            bankLiquidities[i] = bankAvailableLiquidity;
 
-            if (toWithdraw > 0) {
-                allocation.bank.withdraw(
-                    toWithdraw,
+            uint256 bankShares = allocation.bank.balanceOf(address(this));
+            uint256 availableAssets = Math.min(bankAvailableLiquidity, allocation.bank.convertToAssets(bankShares));
+            
+            uint256 actualWithdraw = Math.min(targetWithdraw, availableAssets);
+            if (actualWithdraw > 0) {
+                try allocation.bank.withdraw(
+                    actualWithdraw,
                     address(this),
                     address(this)
-                );
-                remaining -= toWithdraw;
+                ) {
+                    bankWithdrawals[i] = actualWithdraw;
+                    remaining -= actualWithdraw;
+                } catch {
+                    // If the withdraw fails, we skip this bank
+                }               
+            }
+        }
+        
+        // Second pass: Try to withdraw remaining assets from banks with available liquidity
+        if (remaining > 0) {
+            for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+                ICoreBank.BankAllocation memory allocation = bankAllocations[i];
+                if (!isBankEnabled[address(allocation.bank)] || allocation.allocation == 0) {
+                    continue;
+                }
+                
+                uint256 bankShares = allocation.bank.balanceOf(address(this));
+                uint256 availableAssets = Math.min(bankLiquidities[i], allocation.bank.convertToAssets(bankShares));
+                
+                // Subtract what we've already withdrawn
+                availableAssets = availableAssets > bankWithdrawals[i] ? availableAssets - bankWithdrawals[i] : 0;
+                
+                if (availableAssets > 0) {
+                    uint256 additionalWithdraw = Math.min(remaining, availableAssets);
+                    try allocation.bank.withdraw(
+                        additionalWithdraw,
+                        address(this),
+                        address(this)
+                    ) {
+                        bankWithdrawals[i] += additionalWithdraw;
+                        remaining -= additionalWithdraw;
+                    } catch {
+                        // If the withdraw fails, we skip this bank
+                    }
+                }
             }
         }
 
-        require(remaining == 0, "Not enough liquidity");
-
+        require(remaining == 0, "Insufficient liquidity across all banks");
+        
         super._withdraw(caller, receiver, owner, assets, shares);
     }
-
+    
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
         for (uint256 i = 0; i < bankAllocations.length; i++) {
@@ -75,5 +122,46 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
             total += bank.convertToAssets(bankShares);
         }
         return total;
+    }
+
+    function _getBankWithdrawableLiquidity(address bank) internal returns (uint256) {
+        // Harvest fees first to get accurate total assets
+        IBank(bank).harvest();
+        
+        // Get total assets in the bank after fee accrual
+        uint256 bankTotalAssets = IBank(bank).totalAssets();
+        if (bankTotalAssets == 0) return 0;
+
+        // Get all market allocations from the bank
+        IBank.MarketAllocation[] memory marketAllocations = IBank(bank).getMarketAllocations();
+        
+        uint256 totalWithdrawable = 0;
+        
+        // Check each market's available liquidity
+        for (uint256 i = 0; i < marketAllocations.length; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
+            if (!IBank(bank).getIsMarketEnabled(allocation.id)) continue;
+
+            // Accrue interest for this market first
+            IUntitledHub(IBank(bank).getUntitledHub()).accrueInterest(allocation.id);
+
+            // Get market position
+            (uint256 supplyShares, , ) = IUntitledHub(IBank(bank).getUntitledHub()).position(allocation.id, bank);
+            if (supplyShares == 0) continue;
+
+            // Get market state after interest accrual
+            (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, , , ) = IUntitledHub(IBank(bank).getUntitledHub()).market(allocation.id);
+            
+            // Calculate available liquidity in this market
+            uint256 marketLiquidity = totalSupplyAssets - totalBorrowAssets;
+            
+            // Calculate bank's withdrawable amount from this market
+            uint256 bankAssetsInMarket = supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
+            uint256 marketWithdrawable = Math.min(marketLiquidity, bankAssetsInMarket);
+            
+            totalWithdrawable += marketWithdrawable;
+        }
+
+        return totalWithdrawable;
     }
 }
