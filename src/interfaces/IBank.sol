@@ -15,12 +15,12 @@ interface IBank is IERC4626 {
         uint256 allocation;
     }
 
-    function scheduleAddMarket(uint256 id, uint256 allocation, uint256 delay) external;
-    function executeAddMarket(uint256 id, uint256 allocation) external;
-    function cancelAddMarket(uint256 id, uint256 allocation) external;
-    function scheduleAddMarkets(uint256[] calldata ids, uint256[] calldata allocations, uint256 delay) external;
-    function executeAddMarkets(uint256[] calldata ids, uint256[] calldata allocations) external;
-    function cancelAddMarkets(uint256[] calldata ids, uint256[] calldata allocations) external;
+    function scheduleAddMarket(uint256 id, uint256 delay) external;
+    function executeAddMarket(uint256 id) external;
+    function cancelAddMarket(uint256 id) external;
+    function scheduleAddMarkets(uint256[] calldata ids, uint256 delay) external;
+    function executeAddMarkets(uint256[] calldata ids) external;
+    function cancelAddMarkets(uint256[] calldata ids) external;
     function scheduleRemoveMarket(uint256 id, uint256 delay) external;
     function executeRemoveMarket(uint256 id) external;
     function cancelRemoveMarket(uint256 id) external;
@@ -49,18 +49,16 @@ interface IBank is IERC4626 {
     event BankTypeSet(BankType bankType);
     event MarketAdditionScheduled(
         uint256 indexed id,
-        uint256 allocation,
         uint256 delay,
         bytes32 operationId
     );
-    event MarketAdded(uint256 indexed id, uint256 allocation);
+    event MarketAdded(uint256 indexed id);
     event MarketsAdditionScheduled(
         uint256[] ids,
-        uint256[] allocations,
         uint256 delay,
         bytes32 operationId
     );
-    event MarketsAdded(uint256[] ids, uint256[] allocations);
+    event MarketsAdded(uint256[] ids);
     event MarketRemovalScheduled(
         uint256 indexed id,
         uint256 delay,
@@ -98,8 +96,8 @@ interface IBank is IERC4626 {
         bytes32 operationId
     );
     event WhitelistUpdated(address indexed account, bool status);
-    event MarketAdditionCancelled(uint256 indexed id, uint256 allocation, bytes32 indexed operationId);
-    event MarketsAdditionCancelled(uint256[] ids, uint256[] allocations, bytes32 indexed operationId);
+    event MarketAdditionCancelled(uint256 indexed id, bytes32 indexed operationId);
+    event MarketsAdditionCancelled(uint256[] ids, bytes32 indexed operationId);
     event MarketRemovalCancelled(uint256 indexed id, bytes32 indexed operationId);
     event FeeUpdateCancelled(uint256 newFee, bytes32 indexed operationId);
     event FeeRecipientUpdateCancelled(address newFeeRecipient, bytes32 indexed operationId);

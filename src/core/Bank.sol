@@ -39,74 +39,63 @@ contract Bank is IBank, BankInternal, Timelock {
 
     function scheduleAddMarket(
         uint256 id,
-        uint256 allocation,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
         require(marketAllocations.length < MAX_MARKETS, "Bank: Max markets reached");
         require(!isMarketEnabled[id], "Bank: Market already added");
-        require(
-            allocation > 0 && allocation <= BASIS_POINTS,
-            "Bank: Invalid allocation"
-        );
 
         (address loanToken, , , , ) = untitledHub.idToMarketConfigs(id);
         require(loanToken == asset(), "Bank: Asset mismatch");
 
         bytes32 operationId = keccak256(abi.encode(
             "addMarket",
-            id,
-            allocation
+            id
         ));
 
         scheduleOperation(operationId, delay);
 
-        emit MarketAdditionScheduled(id, allocation, delay, operationId);
+        emit MarketAdditionScheduled(id, delay, operationId);
     }
 
-    function executeAddMarket(uint256 id, uint256 allocation) external onlyRole(EXECUTOR_ROLE) {
+    function executeAddMarket(uint256 id) external onlyRole(EXECUTOR_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "addMarket",
-            id,
-            allocation
+            id
         ));
 
         executeOperation(operationId);
 
         require(marketAllocations.length < MAX_MARKETS, "Bank: Max markets reached");
         require(!isMarketEnabled[id], "Bank: Market already added");
-        require(
-            allocation > 0 && allocation <= BASIS_POINTS,
-            "Bank: Invalid allocation"
-        );
 
         (address loanToken, , , , ) = untitledHub.idToMarketConfigs(id);
         require(loanToken == asset(), "Bank: Asset mismatch");
 
-        marketAllocations.push(MarketAllocation(id, allocation));
+        if (marketAllocations.length == 0) {
+            marketAllocations.push(MarketAllocation(id, BASIS_POINTS));
+        } else {
+            marketAllocations.push(MarketAllocation(id, 0));
+        }
         isMarketEnabled[id] = true;
 
-        emit MarketAdded(id, allocation);
+        emit MarketAdded(id);
     }
 
-    function cancelAddMarket(uint256 id, uint256 allocation) external onlyRole(PROPOSER_ROLE) {
+    function cancelAddMarket(uint256 id) external onlyRole(PROPOSER_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "addMarket",
-            id,
-            allocation
+            id
         ));
         
         cancelOperation(operationId);
         
-        emit MarketAdditionCancelled(id, allocation, operationId);
+        emit MarketAdditionCancelled(id, operationId);
     }
-
 
     function scheduleAddMarkets(
         uint256[] calldata ids,
-        uint256[] calldata allocations,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) {
-        require(ids.length == allocations.length, "Bank: Mismatched arrays");
         require(
             marketAllocations.length + ids.length <= MAX_MARKETS,
             "Bank: Max markets reached"
@@ -116,31 +105,18 @@ contract Bank is IBank, BankInternal, Timelock {
             (address loanToken, , , , ) = untitledHub.idToMarketConfigs(ids[i]);
             require(loanToken == asset(), "Bank: Asset mismatch");
         }
-        // allocation check
-        uint256 totalAllocation = 0;
-        for (uint256 i = 0; i < allocations.length; i++) {
-            require(allocations[i] > 0 && allocations[i] <= BASIS_POINTS, "Bank: Invalid allocation");
-            totalAllocation += allocations[i];
-        }
-
-        for (uint256 i = 0; i < marketAllocations.length; i++) {
-            totalAllocation += marketAllocations[i].allocation;
-        }
-        require(totalAllocation <= BASIS_POINTS, "Bank: Total allocation exceeds 100%");
-
 
         bytes32 operationId = keccak256(abi.encode(
             "addMarkets",
-            ids,
-            allocations
+            ids
         ));
 
         scheduleOperation(operationId, delay);
 
-        emit MarketsAdditionScheduled(ids, allocations, delay, operationId);
+        emit MarketsAdditionScheduled(ids, delay, operationId);
     }
 
-    function executeAddMarkets(uint256[] calldata ids, uint256[] calldata allocations) external onlyRole(EXECUTOR_ROLE) {
+    function executeAddMarkets(uint256[] calldata ids) external onlyRole(EXECUTOR_ROLE) {
         require(
             marketAllocations.length + ids.length <= MAX_MARKETS,
             "Bank: Max markets reached"
@@ -148,8 +124,7 @@ contract Bank is IBank, BankInternal, Timelock {
 
         bytes32 operationId = keccak256(abi.encode(
             "addMarkets",
-            ids,
-            allocations
+            ids
         ));
 
         executeOperation(operationId);
@@ -158,38 +133,23 @@ contract Bank is IBank, BankInternal, Timelock {
             require(!isMarketEnabled[ids[i]], "Bank: Market already added");
             (address loanToken, , , , ) = untitledHub.idToMarketConfigs(ids[i]);
             require(loanToken == asset(), "Bank: Asset mismatch");
-        }
-        // allocation check
-        uint256 totalAllocation = 0;
-        for (uint256 i = 0; i < allocations.length; i++) {
-            require(allocations[i] > 0 && allocations[i] <= BASIS_POINTS, "Bank: Invalid allocation");
-            totalAllocation += allocations[i];
-        }
 
-        for (uint256 i = 0; i < marketAllocations.length; i++) {
-            totalAllocation += marketAllocations[i].allocation;
-        }
-        require(totalAllocation <= BASIS_POINTS, "Bank: Total allocation exceeds 100%");
-
-        for (uint256 i = 0; i < ids.length; i++) {
-            require(!isMarketEnabled[ids[i]], "Bank: Market already added");
-            marketAllocations.push(MarketAllocation(ids[i], allocations[i]));
+            marketAllocations.push(MarketAllocation(ids[i], 0));
             isMarketEnabled[ids[i]] = true;
         }
 
-        emit MarketsAdded(ids, allocations);
+        emit MarketsAdded(ids);
     }
 
-    function cancelAddMarkets(uint256[] calldata ids, uint256[] calldata allocations) external onlyRole(PROPOSER_ROLE) {
+    function cancelAddMarkets(uint256[] calldata ids) external onlyRole(PROPOSER_ROLE) {
         bytes32 operationId = keccak256(abi.encode(
             "addMarkets",
-            ids,
-            allocations
+            ids
         ));
         
         cancelOperation(operationId);
         
-        emit MarketsAdditionCancelled(ids, allocations, operationId);
+        emit MarketsAdditionCancelled(ids, operationId);
     }
 
     function scheduleRemoveMarket(uint256 id, uint256 delay) external onlyRole(PROPOSER_ROLE) {
@@ -217,8 +177,10 @@ contract Bank is IBank, BankInternal, Timelock {
         
         // Find and withdraw assets from the market being removed
         uint256 withdrawnAssets = 0;
+        uint256 removedAllocation;
         for (uint256 i = 0; i < marketAllocations.length; i++) {
             if (marketAllocations[i].id == id) {
+                removedAllocation = marketAllocations[i].allocation;
                 (uint256 supplyShares, , ) = untitledHub.position(id, address(this));                
                 if (supplyShares > 0) {
                     (uint256 assets, ) = untitledHub.withdraw(id, type(uint256).max, address(this));
@@ -235,8 +197,14 @@ contract Bank is IBank, BankInternal, Timelock {
         isMarketEnabled[id] = false;
         
         if (withdrawnAssets > 0) {            
-            if(marketAllocations.length == 0) {
-                revert("Bank: Cannot remove last market if there are still assets in the bank");
+            uint256 totalRemainingAllocation = BASIS_POINTS - removedAllocation;
+            require(marketAllocations.length > 0, "Bank: Cannot remove last market if there are still assets in the bank");
+            require(totalRemainingAllocation > 0, "Bank: Total remaining allocation is 0");
+
+            if (totalRemainingAllocation < BASIS_POINTS) {
+                for (uint256 i = 0; i < marketAllocations.length; i++) {
+                    marketAllocations[i].allocation = marketAllocations[i].allocation * BASIS_POINTS / totalRemainingAllocation;
+                }   
             }
             uint256 remaining = withdrawnAssets;
             for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {

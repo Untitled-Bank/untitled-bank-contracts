@@ -68,13 +68,13 @@ contract BankTest is Test {
     uint256 public constant MIN_DELAY = 1 days;
     uint256 public constant FEE = 500; // 5%
 
-    event MarketAdded(uint256 indexed id, uint256 allocation);
+    event MarketAdded(uint256 indexed id);
     event FeeUpdated(uint256 newFee);
     event FeeAccrued(uint256 feeAmount, uint256 feeShares);
     event MarketRemoved(uint256 indexed id);
     event WhitelistUpdated(address indexed account, bool status);
     event MarketsReallocated(uint256[] ids, uint256[] newAllocations);
-    event MarketAdditionCancelled(uint256 indexed id, uint256 allocation, bytes32 indexed operationId);
+    event MarketAdditionCancelled(uint256 indexed id, bytes32 indexed operationId);
     event MarketRemovalCancelled(uint256 indexed id, bytes32 indexed operationId);
     event FeeUpdateCancelled(uint256 newFee, bytes32 indexed operationId);
     event FeeRecipientUpdateCancelled(address newFeeRecipient, bytes32 indexed operationId);
@@ -145,20 +145,19 @@ contract BankTest is Test {
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
         // Schedule market addition
-        uint256 allocation = 5000; // 50%
-        bank.scheduleAddMarket(marketId, allocation, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         
         // Warp time and execute
         vm.warp(block.timestamp + MIN_DELAY);
         vm.expectEmit(true, true, true, true);
-        emit MarketAdded(marketId, allocation);
-        bank.executeAddMarket(marketId, allocation);
+        emit MarketAdded(marketId);
+        bank.executeAddMarket(marketId);
 
         // Verify market was added
         IBank.MarketAllocation[] memory allocations = bank.getMarketAllocations();
         assertEq(allocations.length, 1);
         assertEq(allocations[0].id, marketId);
-        assertEq(allocations[0].allocation, allocation);
+        assertEq(allocations[0].allocation, 10000); // Should be 100% since it's the first market
         assertTrue(bank.isMarketEnabled(marketId));
     }
 
@@ -173,9 +172,9 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY); // 100% allocation
+        bank.scheduleAddMarket(marketId, MIN_DELAY); // 100% allocation
         vm.warp(block.timestamp + MIN_DELAY);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         // Test deposit
         uint256 depositAmount = 100e18;
@@ -202,9 +201,9 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         vm.warp(block.timestamp + MIN_DELAY);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         uint256 depositAmount = 100e18;
         vm.startPrank(user1);
@@ -231,9 +230,9 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         vm.warp(block.timestamp + MIN_DELAY);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         // Setup borrower
         deal(address(collateralToken), user2, 1000e18);
@@ -339,9 +338,9 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
-        privateBank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        privateBank.scheduleAddMarket(marketId, MIN_DELAY);
         vm.warp(block.timestamp + MIN_DELAY);
-        privateBank.executeAddMarket(marketId, 10000);
+        privateBank.executeAddMarket(marketId);
 
         // Grant roles
         privateBank.grantRole(privateBank.PROPOSER_ROLE(), owner);
@@ -382,9 +381,9 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         vm.warp(block.timestamp + MIN_DELAY);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         // Schedule market removal
         bank.scheduleRemoveMarket(marketId, MIN_DELAY);
@@ -413,21 +412,19 @@ contract BankTest is Test {
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
         // Test cancel market addition
-        uint256 allocation = 5000;
-        bank.scheduleAddMarket(marketId, allocation, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         bytes32 addMarketOpId = keccak256(abi.encode(
             "addMarket",
-            marketId,
-            allocation
+            marketId
         ));
         vm.expectEmit(true, true, true, true);
-        emit MarketAdditionCancelled(marketId, allocation, addMarketOpId);
-        bank.cancelAddMarket(marketId, allocation);
+        emit MarketAdditionCancelled(marketId, addMarketOpId);
+        bank.cancelAddMarket(marketId);
         
         // Test cancel market removal
-        bank.scheduleAddMarket(marketId, allocation, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         vm.warp(block.timestamp + MIN_DELAY);
-        bank.executeAddMarket(marketId, allocation);
+        bank.executeAddMarket(marketId);
         
         bank.scheduleRemoveMarket(marketId, MIN_DELAY);
         bytes32 removeMarketOpId = keccak256(abi.encode(
@@ -531,23 +528,52 @@ contract BankTest is Test {
         untitledHub.supply(marketId, 10000e18, "");
         vm.stopPrank();
 
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        // use new bank
+        Bank newBank = new Bank(
+            IERC20(address(loanToken)),
+            "Untitled Bank",
+            "uBANK",
+            untitledHub,
+            FEE,
+            feeRecipient,
+            MIN_DELAY,
+            owner,
+            IBank.BankType.Public
+        );
+
+        newBank.scheduleAddMarket(marketId, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId, 10000);
+        newBank.executeAddMarket(marketId);
 
         // User1 deposits into bank
         uint256 depositAmount = 1000e18;
         vm.startPrank(user1);
-        bank.deposit(depositAmount, user1);
+        loanToken.approve(address(newBank), type(uint256).max);
+        newBank.deposit(depositAmount, user1);
         vm.stopPrank();
 
         // add another market
         uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
-        bank.scheduleAddMarket(marketId2, 10000, MIN_DELAY);
+        newBank.scheduleAddMarket(marketId2, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId2, 10000);
+        newBank.executeAddMarket(marketId2);
+
+        // update allocations
+        IBank.MarketAllocation[] memory newAllocations = new IBank.MarketAllocation[](2);
+        newAllocations[0] = IBank.MarketAllocation({
+            id: marketId,
+            allocation: 5000
+        });
+        newAllocations[1] = IBank.MarketAllocation({
+            id: marketId2,
+            allocation: 5000
+        });
+        newBank.scheduleUpdateAllocations(newAllocations, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        newBank.executeUpdateAllocations(newAllocations);
 
         // Setup borrower
         deal(address(collateralToken), user2, 1000e18);
@@ -558,21 +584,21 @@ contract BankTest is Test {
         vm.stopPrank();
 
         // Try to remove market
-        bank.scheduleRemoveMarket(marketId, MIN_DELAY);
+        newBank.scheduleRemoveMarket(marketId, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeRemoveMarket(marketId);
+        newBank.executeRemoveMarket(marketId);
 
         // Verify market was removed
-        assertFalse(bank.isMarketEnabled(marketId));
+        assertFalse(newBank.isMarketEnabled(marketId));
         
         // Verify funds were properly withdrawn
-        (uint256 supplyShares,,) = untitledHub.position(marketId, address(bank));
+        (uint256 supplyShares,,) = untitledHub.position(marketId, address(newBank));
         assertEq(supplyShares, 0, "Supply shares should be 0 after market removal");
         
         // Verify bank's total assets remain intact
         assertApproxEqRel(
-            bank.totalAssets(),
+            newBank.totalAssets(),
             depositAmount,
             0.01e18, // 1% tolerance for potential rounding
             "Total assets should remain approximately the same"
@@ -592,10 +618,10 @@ contract BankTest is Test {
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         // add more deposit to untitledHub directly (supply)
         deal(address(loanToken), user3, 30000e18);
@@ -626,10 +652,25 @@ contract BankTest is Test {
 
         // add another market
         uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
-        bank.scheduleAddMarket(marketId2, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId2, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId2, 10000);
+        bank.executeAddMarket(marketId2);
+
+        // update allocations
+        IBank.MarketAllocation[] memory newAllocations = new IBank.MarketAllocation[](2);
+        newAllocations[0] = IBank.MarketAllocation({
+            id: marketId,
+            allocation: 5000
+        });
+        newAllocations[1] = IBank.MarketAllocation({
+            id: marketId2,
+            allocation: 5000
+        });
+        bank.scheduleUpdateAllocations(newAllocations, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        bank.executeUpdateAllocations(newAllocations);
         
         // Remove market
         bank.scheduleRemoveMarket(marketId, MIN_DELAY);
@@ -691,10 +732,10 @@ contract BankTest is Test {
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
         // Add market first time
-        bank.scheduleAddMarket(marketId, 10000, MIN_DELAY);
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId, 10000);
+        bank.executeAddMarket(marketId);
 
         // Remove market
         bank.scheduleRemoveMarket(marketId, MIN_DELAY);
@@ -703,10 +744,10 @@ contract BankTest is Test {
         bank.executeRemoveMarket(marketId);
 
         // Re-add same market
-        bank.scheduleAddMarket(marketId, 5000, MIN_DELAY); // Different allocation
+        bank.scheduleAddMarket(marketId, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId, 5000);
+        bank.executeAddMarket(marketId);
 
         // Verify market was re-added successfully
         assertTrue(bank.isMarketEnabled(marketId));
@@ -714,7 +755,7 @@ contract BankTest is Test {
         IBank.MarketAllocation[] memory allocations = bank.getMarketAllocations();
         assertEq(allocations.length, 1);
         assertEq(allocations[0].id, marketId);
-        assertEq(allocations[0].allocation, 5000);
+        assertEq(allocations[0].allocation, 10000);
     }
 
     function testReallocateAndUpdateAllocations() public {
@@ -732,15 +773,30 @@ contract BankTest is Test {
         uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
         
         // Add markets with initial allocations
-        bank.scheduleAddMarket(marketId1, 6000, MIN_DELAY); // 60%
+        bank.scheduleAddMarket(marketId1, MIN_DELAY); // 60%
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId1, 6000);
+        bank.executeAddMarket(marketId1);
 
-        bank.scheduleAddMarket(marketId2, 4000, MIN_DELAY); // 40%
+        bank.scheduleAddMarket(marketId2, MIN_DELAY); // 40%
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeAddMarket(marketId2, 4000);
+        bank.executeAddMarket(marketId2);
+
+        // update allocations
+        IBank.MarketAllocation[] memory newAllocations = new IBank.MarketAllocation[](2);
+        newAllocations[0] = IBank.MarketAllocation({
+            id: marketId1,
+            allocation: 6000
+        });
+        newAllocations[1] = IBank.MarketAllocation({
+            id: marketId2,
+            allocation: 4000
+        });
+        bank.scheduleUpdateAllocations(newAllocations, MIN_DELAY);
+        timestamp += MIN_DELAY;
+        vm.warp(timestamp);
+        bank.executeUpdateAllocations(newAllocations);
 
         // User deposits
         uint256 depositAmount = 1000e18;
@@ -779,21 +835,21 @@ contract BankTest is Test {
         assertTrue(newSupplyShares2 > initialSupplyShares2, "Market2 shares should increase");
 
         // Test updating allocations
-        IBank.MarketAllocation[] memory newAllocations = new IBank.MarketAllocation[](2);
-        newAllocations[0] = IBank.MarketAllocation({
+        IBank.MarketAllocation[] memory newAllocations2 = new IBank.MarketAllocation[](2);
+        newAllocations2[0] = IBank.MarketAllocation({
             id: marketId1,
             allocation: 4000  // 40%
         });
-        newAllocations[1] = IBank.MarketAllocation({
+        newAllocations2[1] = IBank.MarketAllocation({
             id: marketId2,
             allocation: 6000  // 60%
         });
 
         // Schedule and execute allocation update
-        bank.scheduleUpdateAllocations(newAllocations, MIN_DELAY);
+        bank.scheduleUpdateAllocations(newAllocations2, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
-        bank.executeUpdateAllocations(newAllocations);
+        bank.executeUpdateAllocations(newAllocations2);
 
         // Verify new allocations
         IBank.MarketAllocation[] memory updatedAllocations = bank.getMarketAllocations();
@@ -809,10 +865,10 @@ contract BankTest is Test {
         bank.scheduleReallocate(withdrawIds, withdrawAmounts, depositIds, depositAmounts, MIN_DELAY);
 
         // Test invalid allocation update (total != 100%)
-        newAllocations[0].allocation = 5000;
-        newAllocations[1].allocation = 6000; // Total > 100%
+        newAllocations2[0].allocation = 5000;
+        newAllocations2[1].allocation = 6000; // Total > 100%
         
         vm.expectRevert("Bank: Total allocation must be 100%");
-        bank.scheduleUpdateAllocations(newAllocations, MIN_DELAY);
+        bank.scheduleUpdateAllocations(newAllocations2, MIN_DELAY);
     }
 }
