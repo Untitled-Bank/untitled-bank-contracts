@@ -4,15 +4,15 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./UntitledHub.sol";
+import {IUntitledHub, MarketConfigs} from "../interfaces/IUntitledHub.sol";
 
 contract UntitledHubOperation is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    UntitledHub public immutable untitledHub;
+    IUntitledHub public immutable untitledHub;
 
     constructor(address _untitledHub) {
-        untitledHub = UntitledHub(_untitledHub);
+        untitledHub = IUntitledHub(_untitledHub);
     }
 
     function supplyCollateralAndBorrow(
@@ -27,6 +27,12 @@ contract UntitledHubOperation is ReentrancyGuard {
         require(
             untitledHub.isGranted(msg.sender, address(this)),
             "Permission not granted"
+        );
+
+        (, address hubCollateralToken, , ,) = untitledHub.idToMarketConfigs(id);
+        require(
+            hubCollateralToken == collateralToken,
+            "Invalid collateral token"
         );
 
         if (collateralAmount > 0) {
@@ -57,6 +63,9 @@ contract UntitledHubOperation is ReentrancyGuard {
             untitledHub.isGranted(msg.sender, address(this)),
             "Permission not granted"
         );
+
+        (address hubLoanToken, , , ,) = untitledHub.idToMarketConfigs(id);
+        require(hubLoanToken == loanToken, "Invalid loan token");
 
         if (repayAmount > 0) {
             IERC20(loanToken).safeTransferFrom(
