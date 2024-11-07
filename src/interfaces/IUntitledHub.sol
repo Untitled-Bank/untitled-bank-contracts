@@ -253,6 +253,13 @@ interface IUntitledHub is IUntitledHubBase {
         uint256 seizedAssets,
         uint256 repaidShares
     );
+    event BadDebtRealized(
+        uint256 indexed id,
+        address indexed borrower,
+        uint256 remainingDebt,
+        uint256 totalSupplyAssets,
+        uint256 totalSupplyShares
+    );
     event FlashLoan(
         address indexed receiver,
         address indexed token,
