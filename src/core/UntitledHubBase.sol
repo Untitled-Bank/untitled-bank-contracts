@@ -449,10 +449,39 @@ abstract contract UntitledHubBase is UntitledHubStorage {
     ) private returns (uint256, uint256) {
         MarketConfigs memory marketConfigs = idToMarketConfigs[id];
 
+        uint256 totalBorrowerDebt = uint256(position[id][borrower].borrowShares).toAssetsUp(
+            market[id].totalBorrowAssets,
+            market[id].totalBorrowShares
+        );
+        uint256 remainingDebt = 0;
+        
+        if (totalBorrowerDebt > params.repaidAssets) {
+            remainingDebt = totalBorrowerDebt - params.repaidAssets;
+        }
+
         position[id][borrower].collateral -= params.seizedAssets.toUint128();
         position[id][borrower].borrowShares -= params.repaidShares.toUint128();
         market[id].totalBorrowShares -= params.repaidShares.toUint128();
-        market[id].totalBorrowAssets -= params.repaidAssets.toUint128();
+        market[id].totalBorrowAssets = (uint256(market[id].totalBorrowAssets).zeroFloorSub(params.repaidAssets)).toUint128();
+
+        if (remainingDebt > 0 && position[id][borrower].collateral == 0) {
+            // Reduce total supply assets to distribute the loss among suppliers
+            market[id].totalSupplyAssets = (uint256(market[id].totalSupplyAssets).zeroFloorSub(remainingDebt)).toUint128();
+            
+            // Clear remaining borrower debt
+            uint256 remainingShares = uint256(position[id][borrower].borrowShares);
+            position[id][borrower].borrowShares = 0;
+            market[id].totalBorrowShares -= remainingShares.toUint128();
+            market[id].totalBorrowAssets = (uint256(market[id].totalBorrowAssets).zeroFloorSub(remainingDebt)).toUint128();
+
+            emit BadDebtRealized(
+                id,
+                borrower,
+                remainingDebt,
+                market[id].totalSupplyAssets,
+                market[id].totalSupplyShares
+            );
+        }
 
         emit Liquidate(
             id,
