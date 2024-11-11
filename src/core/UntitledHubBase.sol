@@ -438,6 +438,11 @@ abstract contract UntitledHubBase is UntitledHubStorage {
             .mulWadDown(params.liquidationIncentiveFactor)
             .mulDivDown(ORACLE_PRICE_SCALE, collateralPrice);
 
+        params.repaidAssets = repaidShares.toAssetsDown(
+            market[id].totalBorrowAssets,
+            market[id].totalBorrowShares
+        );
+
         return _executeLiquidation(id, borrower, params, data);
     }
 

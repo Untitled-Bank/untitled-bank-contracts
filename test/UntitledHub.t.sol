@@ -192,6 +192,7 @@ contract UntitledHubTest is Test {
         );
     }
 
+    
     function testLiquidation() public {
         // Create market and supply/borrow as in previous tests
         MarketConfigs memory configs = MarketConfigs({
@@ -232,6 +233,62 @@ contract UntitledHubTest is Test {
 
         assertGt(seizedAssets, 0, "Seized assets should be greater than 0");
         assertGt(repaidShares, 0, "Repaid shares should be greater than 0");
+    }
+
+    function testLiquidationByRepaidShares() public {
+        MarketConfigs memory configs = MarketConfigs({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(priceProvider),
+            irm: address(interestRateModel),
+            lltv: 0.8e18 // 80% LLTV
+        });
+        uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
+
+        vm.startPrank(user1);
+        loanToken.approve(address(untitledHub), type(uint256).max);
+        untitledHub.supply(marketId, 100e18, "");
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        collateralToken.approve(address(untitledHub), type(uint256).max);
+        untitledHub.supplyCollateral(marketId, 50e18, "");
+        untitledHub.borrow(marketId, 39e18, user2); // Borrow close to the limit
+        vm.stopPrank();
+
+        // Simulate price drop to make the position liquidatable
+        priceProvider.setCollateralTokenPrice(0.5e36); // 50% price drop
+
+        vm.warp(block.timestamp + 365 days);
+
+        (, uint128 borrowShares, uint128 collateral) = untitledHub.position(marketId, user2);
+        uint256 repaidShares = borrowShares / 2; // Try to repay half of the debt
+
+        // User1 liquidates User2's position using repaidShares
+        vm.startPrank(user1);
+        loanToken.approve(address(untitledHub), type(uint256).max);
+        (uint256 seizedAssets, uint256 actualRepaidShares) = untitledHub
+            .liquidateByRepaidShares(marketId, user2, repaidShares, "");
+        vm.stopPrank();
+
+        console.log("Seized Assets:", seizedAssets);
+        console.log("Repaid Shares:", actualRepaidShares);
+
+        assertGt(seizedAssets, 0, "Seized assets should be greater than 0");
+        assertEq(actualRepaidShares, repaidShares, "Actual repaid shares should match requested amount");
+
+        // Verify the liquidation results
+        (, uint128 borrowSharesAfter, uint128 collateralAfter) = untitledHub.position(marketId, user2);
+        assertEq(
+            borrowSharesAfter,
+            borrowShares - actualRepaidShares,
+            "Borrow shares should be reduced by repaid amount"
+        );
+        assertEq(
+            collateralAfter,
+            collateral - uint128(seizedAssets),
+            "Collateral should be reduced by seized amount"
+        );
     }
 
     function testAccrueInterest() public {
