@@ -389,7 +389,7 @@ contract BankTest is Test {
         loanToken.approve(address(privateBank), type(uint256).max);
         
         vm.prank(user2);
-        vm.expectRevert("Not whitelisted");
+        vm.expectRevert(IBank.NotWhitelisted.selector);
         privateBank.deposit(100e18, user2); // Should fail
     }
 
