@@ -32,5 +32,57 @@ contract DeployCoreBankFactory is Script {
         console.log("CoreBankFactory proxy deployed at:", address(proxy));
 
         vm.stopBroadcast();
+
+        // Output verification commands to console
+        console.log("\n=== To verify the contracts, run the following commands ===\n");
+        
+        // CoreBank implementation verification
+        console.log("1. Verify CoreBank implementation:");
+        console.log(
+            string.concat(
+                "forge verify-contract ",
+                vm.toString(address(coreBankImpl)),
+                " src/core/CoreBank.sol:CoreBank",
+                " --verifier-url https://soneium-minato.blockscout.com/api/",
+                " --verifier blockscout",
+                " --optimizer-runs 200",
+                " --via-ir"
+            )
+        );
+
+        // CoreBankFactory implementation verification
+        console.log("\n2. Verify CoreBankFactory implementation:");
+        console.log(
+            string.concat(
+                "forge verify-contract ",
+                vm.toString(address(coreBankFactoryImpl)),
+                " src/core/CoreBankFactory.sol:CoreBankFactory",
+                " --verifier-url https://soneium-minato.blockscout.com/api/",
+                " --verifier blockscout",
+                " --optimizer-runs 200",
+                " --via-ir"
+            )
+        );
+
+        // CoreBankFactory proxy verification
+        console.log("\n3. Verify CoreBankFactory proxy:");
+        console.log(
+            string.concat(
+                "forge verify-contract ",
+                vm.toString(address(proxy)),
+                " @openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
+                " --verifier-url https://soneium-minato.blockscout.com/api/",
+                " --verifier blockscout",
+                " --constructor-args $(cast abi-encode 'constructor(address,bytes)' ",
+                vm.toString(address(coreBankFactoryImpl)),
+                " $(cast abi-encode 'initialize(address)' ",
+                vm.toString(address(coreBankImpl)),
+                "))",
+                " --optimizer-runs 200",
+                " --via-ir"
+            )
+        );
+        
+        console.log("\n=====================================================\n");
     }
 }
