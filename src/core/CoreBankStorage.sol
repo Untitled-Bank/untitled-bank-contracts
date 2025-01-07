@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../interfaces/ICoreBank.sol";
 
-contract CoreBankStorage {
+contract CoreBankStorage is Initializable {
     ICoreBank.BankAllocation[] public bankAllocations;
     mapping(address => bool) public isBankEnabled;
     mapping(address => uint256) public bankToIndex;
@@ -13,5 +14,6 @@ contract CoreBankStorage {
     uint256 public fee;
     address public feeRecipient;
 
-    constructor() {}
+    function _initializeCoreBankStorage() internal onlyInitializing {
+    }
 }

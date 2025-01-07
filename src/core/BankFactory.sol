@@ -1,53 +1,71 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "./Bank.sol";
 
-contract BankFactory {
-    event BankCreated(
-        address indexed bank,
-        address indexed asset,
-        string name,
-        string symbol
-    );
-
-    UntitledHub public immutable untitledHub;
+contract BankFactory is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => bool) public isBank;
     address[] public banks;
+    address public bankImplementation;
+    UntitledHub public untitledHub;
+    
+    event BankCreated(address bank, address asset, string name, string symbol);
+    event BankImplementationUpdated(address oldImplementation, address newImplementation);
 
-    constructor(UntitledHub _untitledHub) {
-        untitledHub = _untitledHub;
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _bankImplementation, address _untitledHub) public initializer {
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
+        
+        bankImplementation = _bankImplementation;
+        untitledHub = UntitledHub(_untitledHub);
     }
 
     function createBank(
         IERC20 asset,
         string memory name,
         string memory symbol,
-        uint256 initialFee,
-        address initialFeeRecipient,
+        uint256 fee,
+        address feeRecipient,
         uint32 minDelay,
+        address initialAdmin,
         IBank.BankType bankType
-    ) external returns (Bank) {
-        Bank newBank = new Bank(
+    ) external returns (address) {
+        bytes memory initData = abi.encodeWithSelector(
+            Bank.initialize.selector,
             asset,
             name,
             symbol,
             untitledHub,
-            initialFee,
-            initialFeeRecipient,
+            fee,
+            feeRecipient,
             minDelay,
-            msg.sender,
+            initialAdmin,
             bankType
         );
 
-        isBank[address(newBank)] = true;
-        banks.push(address(newBank));
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            bankImplementation,
+            initData
+        );
 
-        emit BankCreated(address(newBank), address(asset), name, symbol);
+        address newBank = address(proxy);
+        isBank[newBank] = true;
+        banks.push(newBank);
 
-        return newBank;
+        emit BankCreated(address(proxy), address(asset), name, symbol);
+        return address(proxy);
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function getBankCount() external view returns (uint256) {
         return banks.length;
@@ -58,9 +76,13 @@ contract BankFactory {
         return banks[index];
     }
 
-    function isBankCreatedByFactory(
-        address bank
-    ) external view returns (bool) {
+    function isBankCreatedByFactory(address bank) external view returns (bool) {
         return isBank[bank];
+    }
+
+    function updateBankImplementation(address newImplementation) external onlyOwner {
+        address oldImplementation = bankImplementation;
+        bankImplementation = newImplementation;
+        emit BankImplementationUpdated(oldImplementation, newImplementation);
     }
 }

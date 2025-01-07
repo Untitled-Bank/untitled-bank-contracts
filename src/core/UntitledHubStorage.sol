@@ -14,9 +14,12 @@ abstract contract UntitledHubStorage is IUntitledHub {
     mapping(address => mapping(address => bool)) public isGranted;
     mapping(uint256 => MarketConfigs) public idToMarketConfigs;
 
+    uint256 public flashLoanFeeRate = 0.0005e18; // 0.05% fee as default
+
     uint256 public lastUsedId;
     uint256 public marketCreationFee;
     uint256 public collectedFees;
+    mapping(address => uint256) public tokenFees;
 
     constructor() {
         bytes32 DOMAIN_TYPEHASH = keccak256(

@@ -89,7 +89,7 @@ contract MockCallbackReceiver is
 
     function onUntitledHubFlashLoan(uint256 assets, bytes calldata) external {
         flashLoanCallbackCalled = true;
-        IERC20(loanToken).approve(hub, assets);
+        IERC20(loanToken).approve(hub, assets + (assets * 5) / 10000); // 0.05% fee
     }
 }
 

@@ -12,3 +12,12 @@ uint256 constant LIQUIDATION_INTERCEPT = 1.4e18;
 
 /// @dev Max liquidation incentive factor.
 uint256 constant MAX_LIQUIDATION_INCENTIVE_FACTOR = 1.15e18;
+
+/// @dev Max number of markets.
+uint256 constant MAX_MARKETS = 10;
+
+/// @dev Basis points.
+uint256 constant BASIS_POINTS = 10000;
+
+/// @dev Basis points in WAD.
+uint256 constant BASIS_POINTS_WAD = BASIS_POINTS * 1e18;

@@ -46,12 +46,24 @@ contract MockInterestRateModel {
     }
 }
 
+// Create a TestBank contract that inherits from Bank but doesn't disable initializers
+contract TestBank is Bank {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        // Remove the Bank() call and don't initialize anything in constructor
+    }
+
+    function _disableInitializers() internal override {
+        // Override to prevent disabling initializers
+    }
+}
+
 contract BankTest is Test {
     using WadMath for uint256;
     using WadMath for uint128;
     using SharesMath for uint256;
 
-    Bank public bank;
+    TestBank public bank;
     UntitledHub public untitledHub;
     MockERC20 public loanToken;
     MockERC20 public collateralToken;
@@ -98,8 +110,14 @@ contract BankTest is Test {
         untitledHub = new UntitledHub(owner);
         untitledHub.registerIrm(address(interestRateModel), true);
 
-        // Deploy Bank
-        bank = new Bank(
+        // Deploy TestBank
+        bank = new TestBank();
+
+        console.log("Bank address:", address(bank));
+        console.log("Starting initialization...");
+        
+        // Initialize bank with valid parameters
+        bank.initialize(
             IERC20(address(loanToken)),
             "Untitled Bank",
             "uBANK",
@@ -110,6 +128,8 @@ contract BankTest is Test {
             owner,
             IBank.BankType.Public
         );
+
+        console.log("Bank initialized successfully");
 
         // Mint tokens to users
         loanToken.mint(user1, INITIAL_BALANCE);
@@ -126,7 +146,7 @@ contract BankTest is Test {
         bank.grantRole(bank.EXECUTOR_ROLE(), owner);
     }
 
-    function testInitialState() view public {
+    function testInitialState() public {
         assertEq(address(bank.untitledHub()), address(untitledHub));
         assertEq(bank.getFee(), FEE);
         assertEq(bank.getFeeRecipient(), feeRecipient);
@@ -315,8 +335,11 @@ contract BankTest is Test {
     }
 
     function testPrivateBank() public {
-        // Deploy private bank
-        Bank privateBank = new Bank(
+        // Deploy private bank using TestBank
+        TestBank privateBank = new TestBank();
+        
+        // Initialize private bank
+        privateBank.initialize(
             IERC20(address(loanToken)),
             "Private Bank",
             "pBANK",
@@ -366,7 +389,7 @@ contract BankTest is Test {
         loanToken.approve(address(privateBank), type(uint256).max);
         
         vm.prank(user2);
-        vm.expectRevert("Not whitelisted");
+        vm.expectRevert(IBank.NotWhitelisted.selector);
         privateBank.deposit(100e18, user2); // Should fail
     }
 
@@ -461,22 +484,27 @@ contract BankTest is Test {
         bank.cancelSetFeeRecipient(newFeeRecipient);
         
         // Test cancel whitelist update
-        // Deploy private bank
-        Bank privateBank = new Bank(
+        // Deploy private bank using TestBank
+        TestBank privateBank = new TestBank();
+        
+        // Initialize private bank first
+        privateBank.initialize(
             IERC20(address(loanToken)),
             "Private Bank",
-            "pBANK", 
+            "pBANK",
             untitledHub,
             FEE,
             feeRecipient,
             MIN_DELAY,
-            owner,
+            owner,  // Set owner as initial admin
             IBank.BankType.Private
         );
 
-        // Grant roles
+        // Now we can grant roles since owner is the admin
         privateBank.grantRole(privateBank.PROPOSER_ROLE(), owner);
         privateBank.grantRole(privateBank.EXECUTOR_ROLE(), owner);
+
+        // Schedule whitelist update
         privateBank.scheduleUpdateWhitelist(owner, true, MIN_DELAY);
         bytes32 whitelistUpdateOpId = keccak256(abi.encode(
             "updateWhitelist",
@@ -528,8 +556,9 @@ contract BankTest is Test {
         untitledHub.supply(marketId, 10000e18, "");
         vm.stopPrank();
 
-        // use new bank
-        Bank newBank = new Bank(
+        // Deploy and initialize new bank
+        TestBank newBank = new TestBank();
+        newBank.initialize(
             IERC20(address(loanToken)),
             "Untitled Bank",
             "uBANK",

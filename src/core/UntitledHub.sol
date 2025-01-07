@@ -94,7 +94,6 @@ contract UntitledHub is IUntitledHub, UntitledHubBase {
         address repayer,
         bytes calldata data
     ) external returns (uint256, uint256) {
-        require(_isSenderGranted(repayer), "UntitledHub: not granted");
         return _repay(id, assets, repayer, data);
     }
 

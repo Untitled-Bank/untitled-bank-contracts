@@ -15,6 +15,10 @@ interface IBank is IERC4626 {
         uint256 allocation;
     }
 
+    error FeeTooHigh();
+    error NotWhitelisted();
+    error AssetsNotFullyDeposited();
+
     function scheduleAddMarket(uint256 id, uint256 delay) external;
     function executeAddMarket(uint256 id) external;
     function cancelAddMarket(uint256 id) external;
