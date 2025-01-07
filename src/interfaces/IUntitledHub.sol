@@ -83,7 +83,8 @@ interface IUntitledHubBase {
         MarketConfigs memory marketConfigs
     ) external payable returns (uint256);
     function setMarketCreationFee(uint256 newFee) external;
-    function withdrawFees(uint256 amount) external;
+    function withdrawFees(address token, address to, uint256 amount) external;
+    function setFlashLoanFeeRate(uint256 newFeeRate) external;
 
     function supply(
         uint256 id,
@@ -201,7 +202,7 @@ interface IUntitledHub is IUntitledHubBase {
         address indexed newOwner
     );
     event MarketCreationFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeesWithdrawn(uint256 amount);
+    event FeesWithdrawn(address token, address to, uint256 amount);
     event CreateMarket(uint256 indexed id, MarketConfigs params);
     event Supply(
         uint256 indexed id,
@@ -279,4 +280,5 @@ interface IUntitledHub is IUntitledHubBase {
     );
     event SetFee(uint256 indexed id, uint256 newFee);
     event SetFeeRecipient(address indexed newFeeRecipient);
+    event FlashLoanFeeRateUpdated(uint256 oldFeeRate, uint256 newFeeRate);
 }

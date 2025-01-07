@@ -1,15 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../interfaces/IBank.sol";
 import "./BankInternal.sol";
 import "../libraries/Timelock.sol";
 import "../libraries/math/WadMath.sol";
 
-contract Bank is IBank, BankInternal, Timelock {
+contract Bank is 
+    Initializable, 
+    UUPSUpgradeable,     
+    IBank, 
+    BankInternal, 
+    Timelock 
+{
     using WadMath for uint256;
 
-    constructor(
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         IERC20 _asset,
         string memory _name,
         string memory _symbol,
@@ -19,12 +32,13 @@ contract Bank is IBank, BankInternal, Timelock {
         uint32 _minDelay,
         address _initialAdmin,
         IBank.BankType _bankType
-    )
-        ERC4626(_asset)
-        ERC20(_name, _symbol)
-        BankStorage(_untitledHub, _bankType)        
-        Timelock(_minDelay, _initialAdmin)
-    {
+    ) public initializer {
+        __ERC4626_init(_asset);
+        __ERC20_init(_name, _symbol);
+        __AccessControl_init();
+        
+        _grantRole(DEFAULT_ADMIN_ROLE, _initialAdmin);
+        
         require(_fee <= 1000, "Fee too high"); // Max 10%
         fee = _fee;
         emit FeeUpdated(_fee);
@@ -32,10 +46,15 @@ contract Bank is IBank, BankInternal, Timelock {
         feeRecipient = _feeRecipient;
         emit FeeRecipientUpdated(_feeRecipient);
 
+        _initializeTimelock(_minDelay, _initialAdmin);
+        _initializeBankStorage(_untitledHub, _bankType);
+
         emit BankTypeSet(_bankType);
 
         lastTotalAssets = totalAssets();
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     function scheduleAddMarket(
         uint256 id,
@@ -141,7 +160,8 @@ contract Bank is IBank, BankInternal, Timelock {
                 }   
             }
             uint256 remaining = withdrawnAssets;
-            for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+            // Handle all markets except the last one
+            for (uint256 i = 0; i < marketAllocations.length - 1 && remaining > 0; i++) {
                 IBank.MarketAllocation memory allocation = marketAllocations[i];
                 uint256 toDeposit = withdrawnAssets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
                 toDeposit = Math.min(toDeposit, remaining);
@@ -152,7 +172,12 @@ contract Bank is IBank, BankInternal, Timelock {
                     remaining -= toDeposit;
                 }
             }
-            require(remaining == 0, "Not all assets deposited");
+            // Handle the last market - deposit all remaining assets
+            if (remaining > 0 && marketAllocations.length > 0) {
+                IBank.MarketAllocation memory lastAllocation = marketAllocations[marketAllocations.length - 1];
+                IERC20(asset()).approve(address(untitledHub), remaining);
+                untitledHub.supply(lastAllocation.id, remaining, "");
+            }
         }
 
         emit MarketRemoved(id);

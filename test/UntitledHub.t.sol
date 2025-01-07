@@ -523,7 +523,7 @@ contract UntitledHubTest is Test {
         console.log("initialBalance:", initialBalance);
         
         vm.prank(owner);
-        untitledHub.withdrawFees(0.01 ether);
+        untitledHub.withdrawFees(address(0), owner, 0.01 ether);
         
         assertEq(
             address(owner).balance,

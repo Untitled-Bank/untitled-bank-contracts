@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./CoreBankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
 import "../interfaces/IUntitledHub.sol";
 
-abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
+abstract contract CoreBankInternal is ERC4626Upgradeable, CoreBankStorage {
     using Math for uint256;
     using WadMath for uint256;
     using SharesMath for uint256;
@@ -22,7 +22,8 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
         super._deposit(caller, receiver, assets, shares);
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+        // Handle all banks except the last one
+        for (uint256 i = 0; i < bankAllocations.length - 1 && remaining > 0; i++) {
             ICoreBank.BankAllocation memory allocation = bankAllocations[i];
             if (!isBankEnabled[address(allocation.bank)] || allocation.allocation == 0) {
                 continue;
@@ -34,6 +35,16 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
                 IERC20(asset()).approve(address(allocation.bank), toDeposit);
                 allocation.bank.deposit(toDeposit, address(this));
                 remaining -= toDeposit;
+            }
+        }
+
+        // Handle the last bank - deposit all remaining assets
+        if (remaining > 0 && bankAllocations.length > 0) {
+            ICoreBank.BankAllocation memory lastAllocation = bankAllocations[bankAllocations.length - 1];
+            if (isBankEnabled[address(lastAllocation.bank)] && lastAllocation.allocation > 0) {
+                IERC20(asset()).approve(address(lastAllocation.bank), remaining);
+                lastAllocation.bank.deposit(remaining, address(this));
+                remaining = 0;
             }
         }
 
@@ -51,8 +62,8 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
         uint256[] memory bankWithdrawals = new uint256[](bankAllocations.length);
         uint256[] memory bankLiquidities = new uint256[](bankAllocations.length);
         
-        // First pass: Try to withdraw according to allocations
-        for (uint256 i = 0; i < bankAllocations.length; i++) {
+        // First pass: Try to withdraw according to allocations for all except last bank
+        for (uint256 i = 0; i < bankAllocations.length - 1 && remaining > 0; i++) {
             ICoreBank.BankAllocation memory allocation = bankAllocations[i];
             if (!isBankEnabled[address(allocation.bank)] || allocation.allocation == 0) {
                 continue;
@@ -78,8 +89,33 @@ abstract contract CoreBankInternal is ERC4626, CoreBankStorage {
                 }               
             }
         }
+
+        // Handle the last bank - try to withdraw all remaining assets if needed
+        if (remaining > 0 && bankAllocations.length > 0) {
+            uint256 lastIndex = bankAllocations.length - 1;
+            ICoreBank.BankAllocation memory lastAllocation = bankAllocations[lastIndex];
+            if (isBankEnabled[address(lastAllocation.bank)] && lastAllocation.allocation > 0) {
+                uint256 bankAvailableLiquidity = _getBankWithdrawableLiquidity(address(lastAllocation.bank));
+                uint256 bankShares = lastAllocation.bank.balanceOf(address(this));
+                uint256 availableAssets = Math.min(bankAvailableLiquidity, lastAllocation.bank.convertToAssets(bankShares));
+
+                if (availableAssets > 0) {
+                    uint256 finalWithdraw = Math.min(remaining, availableAssets);
+                    try lastAllocation.bank.withdraw(
+                        finalWithdraw,
+                        address(this),
+                        address(this)
+                    ) {
+                        bankWithdrawals[lastIndex] = finalWithdraw;
+                        remaining -= finalWithdraw;
+                    } catch {
+                        // If the withdraw fails, continue to second pass
+                    }
+                }
+            }
+        }
         
-        // Second pass: Try to withdraw remaining assets from banks with available liquidity
+        // Second pass: Try to withdraw remaining assets from any bank with available liquidity
         if (remaining > 0) {
             for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
                 ICoreBank.BankAllocation memory allocation = bankAllocations[i];

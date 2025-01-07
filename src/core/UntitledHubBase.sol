@@ -108,6 +108,13 @@ abstract contract UntitledHubBase is UntitledHubStorage {
     function setFeeRecipient(address newFeeRecipient) external onlyOwner {
         require(newFeeRecipient != feeRecipient, "UntitledHub: already set");
 
+        // Accrue interest on all markets before changing fee recipient
+        for (uint256 i = 1; i <= lastUsedId; i++) {
+            if (market[i].lastUpdate != 0) {
+                _accrueInterest(i);
+            }
+        }
+
         feeRecipient = newFeeRecipient;
 
         emit SetFeeRecipient(newFeeRecipient);
@@ -119,11 +126,25 @@ abstract contract UntitledHubBase is UntitledHubStorage {
         emit MarketCreationFeeUpdated(oldFee, newFee);
     }
 
-    function withdrawFees(uint256 amount) external onlyOwner {
-        require(amount <= collectedFees, "UntitledHub: insufficient collected fees");
-        collectedFees -= amount;
-        payable(owner).transfer(amount);
-        emit FeesWithdrawn(amount);
+    function withdrawFees(address token, address to, uint256 amount) external onlyOwner {
+        if (token == address(0)) {
+            require(amount <= collectedFees, "UntitledHub: insufficient collected fees");
+            collectedFees -= amount;
+            payable(to).transfer(amount);
+            emit FeesWithdrawn(token, to, amount);
+        } else {
+            require(amount <= tokenFees[token], "UntitledHub: insufficient collected fees");
+            tokenFees[token] -= amount;
+            ERC20(token).safeTransfer(to, amount);
+            emit FeesWithdrawn(token, to, amount);
+        }
+    }
+
+    function setFlashLoanFeeRate(uint256 newFeeRate) external onlyOwner {
+        require(newFeeRate <= 0.1e18, "UntitledHub: max fee exceeded"); // Max 10% fee
+        uint256 oldFeeRate = flashLoanFeeRate;
+        flashLoanFeeRate = newFeeRate;
+        emit FlashLoanFeeRateUpdated(oldFeeRate, newFeeRate);
     }
 
     /* SUPPLY MANAGEMENT */
@@ -526,13 +547,18 @@ abstract contract UntitledHubBase is UntitledHubStorage {
     ) internal {
         require(assets != 0, "UntitledHub: zero assets");
 
+        uint256 flashLoanFee = assets.mulWadDown(flashLoanFeeRate);
+        uint256 amountToRepay = assets + flashLoanFee;
+
         emit FlashLoan(msg.sender, token, assets);
 
         ERC20(token).safeTransfer(msg.sender, assets);
 
         IUntitledHubFlashLoanCallback(msg.sender).onUntitledHubFlashLoan(assets, data);
 
-        ERC20(token).safeTransferFrom(msg.sender, address(this), assets);
+        ERC20(token).safeTransferFrom(msg.sender, address(this), amountToRepay);
+
+        tokenFees[token] += flashLoanFee;
     }
 
     function setGrantPermission(address grantee, bool newIsGranted) external {

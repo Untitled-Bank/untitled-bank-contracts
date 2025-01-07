@@ -1,26 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "../interfaces/ICoreBank.sol";
 import "./CoreBankInternal.sol";
 import "../libraries/Timelock.sol";
 import "../libraries/math/WadMath.sol";
 
-contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
+contract CoreBank is 
+    Initializable,
+    UUPSUpgradeable,
+    ICoreBank, 
+    CoreBankInternal, 
+    Timelock 
+{
     using WadMath for uint256;
 
-    constructor(
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         IERC20 _asset,
         string memory _name,
         string memory _symbol,
         uint32 _minDelay,
         address _initialAdmin
-    )
-        ERC4626(_asset)
-        ERC20(_name, _symbol)
-        CoreBankStorage()
-        Timelock(_minDelay, _initialAdmin)
-    {}
+    ) public initializer {
+        __ERC4626_init(_asset);
+        __ERC20_init(_name, _symbol);
+        __AccessControl_init();
+        
+        _grantRole(DEFAULT_ADMIN_ROLE, _initialAdmin);
+
+        _initializeTimelock(_minDelay, _initialAdmin);
+        _initializeCoreBankStorage();
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     function scheduleAddBank(
         address bank,
@@ -130,7 +150,8 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
             }
 
             uint256 remaining = withdrawnAssets;
-            for (uint256 i = 0; i < bankAllocations.length && remaining > 0; i++) {
+            // Handle all banks except the last one
+            for (uint256 i = 0; i < bankAllocations.length - 1 && remaining > 0; i++) {
                 BankAllocation memory allocation = bankAllocations[i];
                 uint256 toDeposit = withdrawnAssets.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
                 toDeposit = Math.min(toDeposit, remaining);
@@ -141,7 +162,13 @@ contract CoreBank is ICoreBank, CoreBankInternal, Timelock {
                     remaining -= toDeposit;
                 }
             }
-            require(remaining == 0, "Not all assets deposited");
+
+            // Handle the last bank - deposit all remaining assets
+            if (remaining > 0 && bankAllocations.length > 0) {
+                BankAllocation memory lastAllocation = bankAllocations[bankAllocations.length - 1];
+                IERC20(asset()).approve(address(lastAllocation.bank), remaining);
+                lastAllocation.bank.deposit(remaining, address(this));
+            }
         }
 
         emit BankRemoved(bank);

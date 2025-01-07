@@ -46,12 +46,36 @@ contract MockInterestRateModel {
     }
 }
 
+// Create a TestBank contract that inherits from Bank but doesn't disable initializers
+contract TestBank is Bank {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        // Don't initialize anything in constructor
+    }
+
+    function _disableInitializers() internal override {
+        // Override to prevent disabling initializers
+    }
+}
+
+// Create a TestCoreBank contract that inherits from CoreBank but doesn't disable initializers
+contract TestCoreBank is CoreBank {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        // Don't initialize anything in constructor
+    }
+
+    function _disableInitializers() internal override {
+        // Override to prevent disabling initializers
+    }
+}
+
 contract CoreBankTest is Test {
     using WadMath for uint256;
 
-    CoreBank public coreBank;
-    Bank public bank1;
-    Bank public bank2;
+    TestCoreBank public coreBank;
+    TestBank public bank1;  // Change to TestBank
+    TestBank public bank2;  // Change to TestBank
     MockERC20 public loanToken;
     MockERC20 public collateralToken;
     UntitledHub public untitledHub;
@@ -81,7 +105,7 @@ contract CoreBankTest is Test {
         user2 = address(0x2);
         feeRecipient = address(0x3);
 
-        // Deploy mock token
+        // Deploy mock tokens
         loanToken = new MockERC20("Loan Token", "LOAN");
         collateralToken = new MockERC20("Collateral Token", "COLL");
 
@@ -95,7 +119,12 @@ contract CoreBankTest is Test {
         untitledHub.registerIrm(address(interestRateModel), true);
 
         // Deploy CoreBank
-        coreBank = new CoreBank(
+        coreBank = new TestCoreBank();
+        
+        console.log("CoreBank address:", address(coreBank));
+        console.log("Starting CoreBank initialization...");
+        
+        coreBank.initialize(
             IERC20(address(loanToken)),
             "Core Bank",
             "cBANK",
@@ -103,8 +132,14 @@ contract CoreBankTest is Test {
             owner
         );
 
+        console.log("CoreBank initialized successfully");
+
         // Deploy Banks
-        bank1 = new Bank(
+        bank1 = new TestBank();  // Use TestBank
+        console.log("Bank1 address:", address(bank1));
+        console.log("Starting Bank1 initialization...");
+        
+        bank1.initialize(
             IERC20(address(loanToken)),
             "Bank 1",
             "BANK1",
@@ -116,7 +151,13 @@ contract CoreBankTest is Test {
             IBank.BankType.Public
         );
 
-        bank2 = new Bank(
+        console.log("Bank1 initialized successfully");
+
+        bank2 = new TestBank();  // Use TestBank
+        console.log("Bank2 address:", address(bank2));
+        console.log("Starting Bank2 initialization...");
+        
+        bank2.initialize(
             IERC20(address(loanToken)),
             "Bank 2",
             "BANK2",
@@ -127,6 +168,8 @@ contract CoreBankTest is Test {
             owner,
             IBank.BankType.Public
         );
+
+        console.log("Bank2 initialized successfully");
 
         // Mint tokens to users
         loanToken.mint(user1, INITIAL_BALANCE);
@@ -213,16 +256,15 @@ contract CoreBankTest is Test {
     function testDeposit() public {
         uint256 timestamp = block.timestamp;
         
-        // newCoreBank
-        CoreBank newCoreBank = new CoreBank(
+        // Deploy new CoreBank with initialize
+        TestCoreBank newCoreBank = new TestCoreBank();
+        newCoreBank.initialize(
             IERC20(address(loanToken)),
             "Core Bank",
             "cBANK",
             MIN_DELAY,
             owner
         );
-
-        
 
         // Add bank first
         newCoreBank.scheduleAddBank(address(bank1), MIN_DELAY); // 100% allocation
@@ -423,9 +465,10 @@ contract CoreBankTest is Test {
     function testInvalidBankAddition() public {
         uint256 timestamp = block.timestamp;
 
-        // Try to add bank with mismatched asset
+        // Deploy invalid bank with initialize
         MockERC20 differentToken = new MockERC20("Different Token", "DIFF");
-        Bank invalidBank = new Bank(
+        TestBank invalidBank = new TestBank();
+        invalidBank.initialize(
             IERC20(address(differentToken)),
             "Invalid Bank",
             "INVALID",
@@ -447,8 +490,9 @@ contract CoreBankTest is Test {
     function testPrivateBankAddition() public {
         uint256 timestamp = block.timestamp;
         
-        // Deploy private bank
-        Bank privateBank = new Bank(
+        // Deploy private bank with initialize
+        TestBank privateBank = new TestBank();
+        privateBank.initialize(
             IERC20(address(loanToken)),
             "Private Bank",
             "PRIV",

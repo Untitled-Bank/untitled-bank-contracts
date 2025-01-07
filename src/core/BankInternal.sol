@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./BankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
 
-abstract contract BankInternal is ERC4626, BankStorage {
+abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
     using Math for uint256;
     using WadMath for uint256;
     using SharesMath for uint256;
@@ -28,7 +28,8 @@ abstract contract BankInternal is ERC4626, BankStorage {
         super._deposit(caller, receiver, assets, shares);
 
         uint256 remaining = assets;
-        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+        // Handle all markets except the last one
+        for (uint256 i = 0; i < marketAllocations.length - 1 && remaining > 0; i++) {
             IBank.MarketAllocation memory allocation = marketAllocations[i];
             if (!isMarketEnabled[allocation.id] || allocation.allocation == 0) {
                 continue;
@@ -40,6 +41,16 @@ abstract contract BankInternal is ERC4626, BankStorage {
                 IERC20(asset()).approve(address(untitledHub), toDeposit);
                 untitledHub.supply(allocation.id, toDeposit, "");
                 remaining -= toDeposit;
+            }
+        }
+
+        // Handle the last market - deposit all remaining assets
+        if (remaining > 0 && marketAllocations.length > 0) {
+            IBank.MarketAllocation memory lastAllocation = marketAllocations[marketAllocations.length - 1];
+            if (isMarketEnabled[lastAllocation.id] && lastAllocation.allocation > 0) {
+                IERC20(asset()).approve(address(untitledHub), remaining);
+                untitledHub.supply(lastAllocation.id, remaining, "");
+                remaining = 0;
             }
         }
 
@@ -109,8 +120,15 @@ abstract contract BankInternal is ERC4626, BankStorage {
         uint256[] memory marketLiquidities = new uint256[](marketAllocations.length);
         uint256 remaining = assets;
         
-        remaining = _withdrawByAllocation(remaining, marketWithdrawals, marketLiquidities);
+        // First pass: withdraw by allocation except last market
+        remaining = _withdrawByAllocationExceptLast(remaining, marketWithdrawals, marketLiquidities);
         
+        // Second pass: try last market
+        if (remaining > 0) {
+            remaining = _withdrawFromLastMarket(remaining, marketWithdrawals, marketLiquidities);
+        }
+        
+        // Final pass: try remaining liquidity from all markets
         if (remaining > 0) {
             remaining = _withdrawFromRemainingLiquidity(remaining, marketWithdrawals, marketLiquidities);
         }
@@ -118,12 +136,12 @@ abstract contract BankInternal is ERC4626, BankStorage {
         return remaining == 0;
     }
 
-    function _withdrawByAllocation(
+    function _withdrawByAllocationExceptLast(
         uint256 remaining,
         uint256[] memory marketWithdrawals,
         uint256[] memory marketLiquidities
     ) private returns (uint256) {
-        for (uint256 i = 0; i < marketAllocations.length && remaining > 0; i++) {
+        for (uint256 i = 0; i < marketAllocations.length - 1 && remaining > 0; i++) {
             IBank.MarketAllocation memory allocation = marketAllocations[i];
             if (!_isValidMarket(allocation)) continue;
 
@@ -141,6 +159,32 @@ abstract contract BankInternal is ERC4626, BankStorage {
                 }
             }
         }
+        return remaining;
+    }
+
+    function _withdrawFromLastMarket(
+        uint256 remaining,
+        uint256[] memory marketWithdrawals,
+        uint256[] memory marketLiquidities
+    ) private returns (uint256) {
+        if (marketAllocations.length == 0) return remaining;
+
+        uint256 lastIndex = marketAllocations.length - 1;
+        IBank.MarketAllocation memory lastAllocation = marketAllocations[lastIndex];
+        if (!_isValidMarket(lastAllocation)) return remaining;
+
+        marketLiquidities[lastIndex] = _marketLiquidityAfterAccruedInterest(lastAllocation.id);
+        uint256 availableAssets = _calculateAvailableAssets(lastAllocation.id, marketLiquidities[lastIndex]);
+        
+        if (availableAssets > 0) {
+            uint256 finalWithdraw = Math.min(remaining, availableAssets);
+            uint256 withdrawn = _tryWithdraw(lastAllocation.id, finalWithdraw);
+            if (withdrawn > 0) {
+                marketWithdrawals[lastIndex] = withdrawn;
+                remaining -= withdrawn;
+            }
+        }
+        
         return remaining;
     }
 

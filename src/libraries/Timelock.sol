@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-contract Timelock is AccessControl {
+abstract contract Timelock is AccessControlUpgradeable {
     struct TimelockOperation {
         uint256 executionTime;
         bool executed;
@@ -28,9 +28,12 @@ contract Timelock is AccessControl {
     error AlreadyExecuted();
     error NotReady();
 
-    constructor(uint32 _minDelay, address _initialAdmin) {
+    function _initializeTimelock(uint32 _minDelay, address _initialAdmin) internal onlyInitializing {
+        __AccessControl_init();
+        
         require(_minDelay >= LB_MIN_DELAY && _minDelay <= MAX_DELAY, "Timelock: Invalid delay");        
         minDelay = _minDelay;
+        
         _grantRole(DEFAULT_ADMIN_ROLE, _initialAdmin);
         _grantRole(PROPOSER_ROLE, _initialAdmin);
         _grantRole(EXECUTOR_ROLE, _initialAdmin);
@@ -54,7 +57,6 @@ contract Timelock is AccessControl {
         if(operation.executed) revert AlreadyExecuted();
         if(block.timestamp < operation.executionTime) revert NotReady();
 
-        operation.executed = true;
         delete timelockOperations[operationId];
 
         emit OperationExecuted(operationId);
@@ -68,11 +70,6 @@ contract Timelock is AccessControl {
         delete timelockOperations[operationId];
 
         emit OperationCancelled(operationId);
-    }
-
-    function updateDelay(uint32 newMinDelay) internal onlyRole(DEFAULT_ADMIN_ROLE) {
-        if(newMinDelay < LB_MIN_DELAY || newMinDelay > MAX_DELAY) revert InvalidDelay();
-        minDelay = newMinDelay;
     }
 
     function getOperation(bytes32 operationId) external view returns (TimelockOperation memory) {
