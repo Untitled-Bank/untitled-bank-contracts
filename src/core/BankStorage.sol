@@ -11,9 +11,6 @@ contract BankStorage is Initializable {
     mapping(uint256 => bool) public isMarketEnabled;
     mapping(uint256 => uint256) public marketIdToIndex;
 
-    uint256 public constant MAX_MARKETS = 10;
-    uint256 public constant BASIS_POINTS = 10000;
-    uint256 public constant BASIS_POINTS_WAD = BASIS_POINTS * 1e18;
     uint256 public fee;
     address public feeRecipient;
 

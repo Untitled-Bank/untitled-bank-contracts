@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./BankStorage.sol";
 import "../libraries/math/WadMath.sol";
 import "../libraries/math/SharesMath.sol";
+import "../interfaces/IBank.sol";
 
 abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
     using Math for uint256;
@@ -22,7 +23,7 @@ abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
         uint256 shares
     ) internal virtual override {
         if (bankType == IBank.BankType.Private) {
-            require(whitelist[caller], "Not whitelisted");
+            if (!whitelist[caller]) revert IBank.NotWhitelisted();
         }
         _accrueFee();
         super._deposit(caller, receiver, assets, shares);
@@ -54,7 +55,7 @@ abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
             }
         }
 
-        require(remaining == 0, "Bank: Not all assets deposited");
+        if (remaining != 0) revert IBank.AssetsNotFullyDeposited();
         lastTotalAssets = totalAssets();
     }
 
@@ -66,7 +67,7 @@ abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
         uint256 shares
     ) internal virtual override {
         if (bankType == IBank.BankType.Private) {
-            require(whitelist[owner], "Not whitelisted");
+            if (!whitelist[owner]) revert IBank.NotWhitelisted();
         }
         _accrueFee();
 
