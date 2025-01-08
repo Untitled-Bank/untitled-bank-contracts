@@ -60,7 +60,17 @@ abstract contract UntitledHubBase is UntitledHubStorage {
             "UntitledHub: insufficient creation fee"
         );
 
+        bytes32 marketConfigsHash = keccak256(abi.encode(
+            marketConfigs.loanToken,
+            marketConfigs.collateralToken,
+            marketConfigs.oracle,
+            marketConfigs.irm,
+            marketConfigs.lltv
+        ));
+
         uint256 newId = ++lastUsedId;
+        require(marketConfigsHashToId[marketConfigsHash] == 0, "UntitledHub: market already created");
+        marketConfigsHashToId[marketConfigsHash] = newId;
         require(market[newId].lastUpdate == 0, "UntitledHub: market already created");
 
         // Safe "unchecked" cast.

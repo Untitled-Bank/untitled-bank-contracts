@@ -192,8 +192,15 @@ contract CoreBankTest is Test {
             irm: address(interestRateModel),
             lltv: 0.8e18
         });
+        MarketConfigs memory configs2 = MarketConfigs({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(priceProvider),
+            irm: address(interestRateModel),
+            lltv: 0.81e18
+        });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
-        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs2);
 
         // Schedule market addition
         bank1.scheduleAddMarket(marketId, MIN_DELAY);

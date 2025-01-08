@@ -188,7 +188,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.81e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -217,7 +217,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.82e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -246,7 +246,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.83e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -357,7 +357,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.84e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
@@ -400,7 +400,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.85e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -430,7 +430,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.86e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -545,7 +545,14 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.87e18
+        });
+        MarketConfigs memory configs2 = MarketConfigs({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(priceProvider),
+            irm: address(interestRateModel),
+            lltv: 0.872e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
 
@@ -583,7 +590,7 @@ contract BankTest is Test {
         vm.stopPrank();
 
         // add another market
-        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs2);
         newBank.scheduleAddMarket(marketId2, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
@@ -643,7 +650,14 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.88e18
+        });
+        MarketConfigs memory configs2 = MarketConfigs({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(priceProvider),
+            irm: address(interestRateModel),
+            lltv: 0.882e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -681,7 +695,7 @@ contract BankTest is Test {
         uint256 initialTotalAssets = bank.totalAssets();
 
         // add another market
-        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs2);
         bank.scheduleAddMarket(marketId2, MIN_DELAY);
         timestamp += MIN_DELAY;
         vm.warp(timestamp);
@@ -762,7 +776,7 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.89e18
         });
         uint256 marketId = untitledHub.createMarket{value: 0.01 ether}(configs);
         
@@ -802,10 +816,17 @@ contract BankTest is Test {
             collateralToken: address(collateralToken),
             oracle: address(priceProvider),
             irm: address(interestRateModel),
-            lltv: 0.8e18
+            lltv: 0.9e18
+        });
+        MarketConfigs memory configs2 = MarketConfigs({
+            loanToken: address(loanToken),
+            collateralToken: address(collateralToken),
+            oracle: address(priceProvider),
+            irm: address(interestRateModel),
+            lltv: 0.91e18
         });
         uint256 marketId1 = untitledHub.createMarket{value: 0.01 ether}(configs);
-        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs);
+        uint256 marketId2 = untitledHub.createMarket{value: 0.01 ether}(configs2);
         
         // Add markets with initial allocations
         bank.scheduleAddMarket(marketId1, MIN_DELAY); // 60%
