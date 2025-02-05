@@ -5,9 +5,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IUntitledHub, MarketConfigs} from "../interfaces/IUntitledHub.sol";
+import {SharesMath} from "../libraries/math/SharesMath.sol";
 
 contract UntitledHubOperation is ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using SharesMath for uint256;
 
     IUntitledHub public immutable untitledHub;
 
@@ -29,7 +31,9 @@ contract UntitledHubOperation is ReentrancyGuard {
             "Permission not granted"
         );
 
-        (, address hubCollateralToken, , ,) = untitledHub.idToMarketConfigs(id);
+        (, address hubCollateralToken, , , ) = untitledHub.idToMarketConfigs(
+            id
+        );
         require(
             hubCollateralToken == collateralToken,
             "Invalid collateral token"
@@ -41,7 +45,10 @@ contract UntitledHubOperation is ReentrancyGuard {
                 address(this),
                 collateralAmount
             );
-            IERC20(collateralToken).approve(address(untitledHub), collateralAmount);
+            IERC20(collateralToken).approve(
+                address(untitledHub),
+                collateralAmount
+            );
             untitledHub.supplyCollateralFor(id, collateralAmount, receiver, "");
         }
 
@@ -64,21 +71,70 @@ contract UntitledHubOperation is ReentrancyGuard {
             "Permission not granted"
         );
 
-        (address hubLoanToken, , , ,) = untitledHub.idToMarketConfigs(id);
+        (address hubLoanToken, , , , ) = untitledHub.idToMarketConfigs(id);
         require(hubLoanToken == loanToken, "Invalid loan token");
 
+        untitledHub.accrueInterest(id);
+
         if (repayAmount > 0) {
+            uint256 transferAmount;
+            if (repayAmount == type(uint256).max) {
+                (
+                    ,
+                    ,
+                    uint256 totalBorrowAssets,
+                    uint256 totalBorrowShares,
+                    ,
+
+                ) = untitledHub.market(id);
+                (, uint256 userBorrowShares, ) = untitledHub.position(
+                    id,
+                    receiver
+                );
+
+                transferAmount = userBorrowShares.toAssetsUp(
+                    totalBorrowAssets,
+                    totalBorrowShares
+                );
+
+                // If no debt, exit early
+                if (transferAmount == 0) return;
+            } else {
+                transferAmount = repayAmount;
+            }
+
+            // Transfer the calculated amount from the sender
             IERC20(loanToken).safeTransferFrom(
                 msg.sender,
                 address(this),
-                repayAmount
+                transferAmount
             );
-            IERC20(loanToken).approve(address(untitledHub), repayAmount);
-            untitledHub.repayFor(id, repayAmount, receiver, "");
+            IERC20(loanToken).approve(address(untitledHub), transferAmount);
+
+            // Perform the repayment
+            (uint256 actualRepayAmount, ) = untitledHub.repayFor(
+                id,
+                transferAmount,
+                receiver,
+                ""
+            );
+
+            // Refund any excess
+            if (actualRepayAmount < transferAmount) {
+                IERC20(loanToken).safeTransfer(
+                    msg.sender,
+                    transferAmount - actualRepayAmount
+                );
+            }
         }
 
         if (withdrawAmount > 0) {
-            untitledHub.withdrawCollateralFor(id, withdrawAmount, receiver, receiver);
+            untitledHub.withdrawCollateralFor(
+                id,
+                withdrawAmount,
+                receiver,
+                receiver
+            );
         }
     }
 }
