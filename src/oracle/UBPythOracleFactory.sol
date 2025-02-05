@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-pragma solidity 0.8.21;
+pragma solidity ^0.8.21;
 
 import {UBPythOracle} from "./UBPythOracle.sol";
 import {AbstractPyth} from "@pythnetwork/pyth-sdk-solidity/AbstractPyth.sol";
