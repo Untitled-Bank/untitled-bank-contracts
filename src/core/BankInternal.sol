@@ -15,6 +15,7 @@ abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
 
     uint256 public lastTotalAssets;
     event FeeAccrued(uint256 feeAmount, uint256 feeShares);
+    error WithdrawFailed();
 
     function _deposit(
         address caller,
@@ -71,10 +72,13 @@ abstract contract BankInternal is ERC4626Upgradeable, BankStorage {
         }
         _accrueFee();
 
-        if (_executeWithdraw(assets)) {
-            super._withdraw(caller, receiver, owner, assets, shares);
-            lastTotalAssets = totalAssets();
+        if (!_executeWithdraw(assets)) {
+            revert WithdrawFailed();
         }
+        
+        // Execute transfer to receiver
+        super._withdraw(caller, receiver, owner, assets, shares);
+        lastTotalAssets = totalAssets();
     }
 
     function totalAssets() public view virtual override returns (uint256) {

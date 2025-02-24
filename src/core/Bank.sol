@@ -19,6 +19,11 @@ contract Bank is
     using BankActions for *;
     using WadMath for uint256;
 
+    event StuckAssetsRedeposited(uint256 amount);
+
+    error NoStuckAssets();
+    error RedepositFailed();
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -393,5 +398,43 @@ contract Bank is
 
     function isWhitelisted(address account) external view returns (bool) {
         return whitelist[account];
+    }
+
+    function redepositStuckAssets() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        uint256 stuckAmount = IERC20(asset()).balanceOf(address(this));
+        if (stuckAmount == 0) revert NoStuckAssets();
+        
+        uint256 remaining = stuckAmount;
+        
+        // Handle all markets except the last one
+        for (uint256 i = 0; i < marketAllocations.length - 1 && remaining > 0; i++) {
+            IBank.MarketAllocation memory allocation = marketAllocations[i];
+            if (!isMarketEnabled[allocation.id] || allocation.allocation == 0) {
+                continue;
+            }
+            
+            uint256 toDeposit = stuckAmount.mulWadDown(allocation.allocation * 1e18).divWadDown(BASIS_POINTS_WAD);
+            toDeposit = Math.min(toDeposit, remaining);
+            
+            if (toDeposit > 0) {
+                IERC20(asset()).approve(address(untitledHub), toDeposit);
+                untitledHub.supply(allocation.id, toDeposit, "");
+                remaining -= toDeposit;
+            }
+        }
+        
+        // Handle the last market - deposit all remaining assets
+        if (remaining > 0 && marketAllocations.length > 0) {
+            IBank.MarketAllocation memory lastAllocation = marketAllocations[marketAllocations.length - 1];
+            if (isMarketEnabled[lastAllocation.id] && lastAllocation.allocation > 0) {
+                IERC20(asset()).approve(address(untitledHub), remaining);
+                untitledHub.supply(lastAllocation.id, remaining, "");
+                remaining = 0;
+            }
+        }
+        
+        if (remaining != 0) revert RedepositFailed();
+        
+        emit StuckAssetsRedeposited(stuckAmount - remaining);
     }
 }
