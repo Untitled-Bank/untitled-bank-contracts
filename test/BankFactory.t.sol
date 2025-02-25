@@ -6,6 +6,7 @@ import "../src/core/BankFactory.sol";
 import "../src/core/Bank.sol";
 import "../src/core/UntitledHub.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
@@ -146,15 +147,16 @@ contract BankFactoryTest is Test {
         assertEq(factory.bankImplementation(), address(newImplementation));
     }
 
-    function testFailUpdateImplementationNonOwner() public {
+    function test_RevertWhen_UpdateImplementationNonOwner() public {
         TestBank newImplementation = new TestBank();
         
         vm.prank(user1);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         factory.updateBankImplementation(address(newImplementation));
     }
 
-    function testFailGetBankAtInvalidIndex() public view {
+    function test_RevertWhen_GetBankAtInvalidIndex() public {
+        vm.expectRevert("Index out of bounds");
         factory.getBankAt(999);
     }
 
@@ -186,7 +188,8 @@ contract BankFactoryTest is Test {
         }
     }
 
-    function testFailCreateBankWithInvalidFee() public {
+    function test_RevertWhen_CreateBankWithInvalidFee() public {
+        vm.expectRevert(abi.encodeWithSignature("FeeTooHigh()"));
         factory.createBank(
             IERC20(address(token)),
             "Test Bank",
