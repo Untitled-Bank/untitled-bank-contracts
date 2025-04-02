@@ -38,3 +38,37 @@ forge clean
 forge build
 forge test
 ```
+
+### Test Coverage
+
+To generate test coverage, run the following command:
+
+```bash
+npx hardhat clean & npx hardhat coverage
+```
+
+
+#### Current Coverage Results
+
+| File | % Funcs | % Lines |
+|------|---------|---------|
+| core/Bank.sol | 96.97 | 99.11 |
+| core/BankFactory.sol | 75 | 94.74 |
+| core/BankInternal.sol | 92.31 | 84.47 |
+| core/BankStorage.sol | 100 | 100 |
+| core/CoreBank.sol | 93.75 | 80.33 |
+| core/CoreBankFactory.sol | 66.67 | 89.47 |
+| core/CoreBankInternal.sol | 100 | 83.72 |
+| core/CoreBankStorage.sol | 100 | 100 |
+| core/UntitledHub.sol | 87.5 | 86.67 |
+| core/UntitledHubBase.sol | 96 | 92.34 |
+| core/UntitledHubOperation.sol | 100 | 100 |
+| core/UntitledHubStorage.sol | 100 | 100 |
+| interfaces/* | 100 | 100 |
+| libraries/BankActions.sol | 80 | 69.23 |
+| libraries/ConstantsLib.sol | 100 | 100 |
+| libraries/Timelock.sol | 80 | 95.45 |
+| libraries/UtilsLib.sol | 100 | 100 |
+| libraries/math/SharesMath.sol | 100 | 100 |
+| libraries/math/WadMath.sol | 85.71 | 90 |
+| **All files** | **90.91** | **87.92** |

@@ -194,6 +194,7 @@ interface IUntitledHubBase {
     function setFee(uint256 id, uint256 newFee) external;
     function setFeeRecipient(address newFeeRecipient) external;
     function accrueInterest(uint256 id) external;
+    function flashLoanFeeRate() external view returns (uint256);
 }
 
 interface IUntitledHub is IUntitledHubBase {
